@@ -18,33 +18,43 @@ class GenreSheet extends ConsumerWidget {
     final selected = ref.watch(selectedGenresProvider);
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Filter by genre',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
                 ),
                 TextButton(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                   onPressed: selected.isEmpty
                       ? null
                       : () => ref.read(modeGenreProvider.notifier).clear(mode),
-                  child: const Text('Clear all'),
+                  child: const Text('Clear all',
+                      style: TextStyle(fontSize: 13)),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Flexible(
               child: SingleChildScrollView(
                 child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: 6,
+                  runSpacing: 4,
                   children: [
                     for (final g in all)
                       FilterChip(
@@ -53,13 +63,19 @@ class GenreSheet extends ConsumerWidget {
                         onSelected: (_) => ref
                             .read(modeGenreProvider.notifier)
                             .toggle(mode, g),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize:
+                            MaterialTapTargetSize.shrinkWrap,
                       ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             FilledButton(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(40),
+              ),
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Done'),
             ),
