@@ -37,6 +37,13 @@ class Recommendation {
   /// IMDb entry" (the resolver sets the empty string for the latter so we
   /// don't keep retrying).
   final String? imdbId;
+  /// Sub-genre / sub-topic tags (e.g. `wildlife`, `slasher`, `true_crime`).
+  /// Populated by the keyword-augmentation pipeline via
+  /// `kKeywordToSubgenres`. Same AND-intersection filter contract as
+  /// `genres`: a rec with an empty set drops out under any non-empty
+  /// sub-genre filter (mirrors gotcha 10). Empty by default — the
+  /// augmenter only widens, never narrows.
+  final Set<String> subgenres;
   final DateTime? generatedAt;
 
   const Recommendation({
@@ -57,6 +64,7 @@ class Recommendation {
     this.isOscarWinner = false,
     this.curator = '',
     this.imdbId,
+    this.subgenres = const <String>{},
     this.generatedAt,
   });
 
@@ -98,6 +106,11 @@ class Recommendation {
       imdbId: (d['imdb_id'] as String?)?.isNotEmpty == true
           ? d['imdb_id'] as String
           : null,
+      subgenres: (d['subgenres'] as List?)
+              ?.whereType<String>()
+              .where((s) => s.isNotEmpty)
+              .toSet() ??
+          const <String>{},
       generatedAt: (d['generated_at'] as Timestamp?)?.toDate(),
     );
   }

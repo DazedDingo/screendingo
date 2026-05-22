@@ -119,5 +119,37 @@ void main() {
       final parsed = Recommendation.fromDoc(await db.doc('r/x').get());
       expect(parsed.imdbId, isNull);
     });
+
+    test('fromDoc reads subgenres when the augmenter stamped them', () async {
+      final db = FakeFirebaseFirestore();
+      await db.doc('r/x').set({
+        'tmdb_id': 1,
+        'title': 'X',
+        'subgenres': ['wildlife', 'history_doc'],
+      });
+      final parsed = Recommendation.fromDoc(await db.doc('r/x').get());
+      expect(parsed.subgenres, {'wildlife', 'history_doc'});
+    });
+
+    test('fromDoc returns empty subgenres set when field is missing',
+        () async {
+      // Strict-on-empty contract — pre-augmentation rec docs read as
+      // having no sub-genres so any non-empty sub-genre filter drops them.
+      final db = FakeFirebaseFirestore();
+      await db.doc('r/x').set({'tmdb_id': 1, 'title': 'X'});
+      final parsed = Recommendation.fromDoc(await db.doc('r/x').get());
+      expect(parsed.subgenres, isEmpty);
+    });
+
+    test('fromDoc tolerates non-string entries in subgenres list', () async {
+      final db = FakeFirebaseFirestore();
+      await db.doc('r/x').set({
+        'tmdb_id': 1,
+        'title': 'X',
+        'subgenres': ['wildlife', 42, null, ''],
+      });
+      final parsed = Recommendation.fromDoc(await db.doc('r/x').get());
+      expect(parsed.subgenres, {'wildlife'});
+    });
   });
 }

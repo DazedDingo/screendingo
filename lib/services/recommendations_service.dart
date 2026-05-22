@@ -686,17 +686,24 @@ class RecommendationsService {
       final currentGenres = (data['genres'] as List? ?? const [])
           .whereType<String>()
           .toList();
+      final currentSubgenres = (data['subgenres'] as List? ?? const [])
+          .whereType<String>()
+          .toSet();
       final augmented =
           augmentGenresWithKeywords(currentGenres, keywordIds);
+      final augmentedSubs =
+          augmentSubgenresWithKeywords(currentSubgenres, keywordIds);
       final storedVersion = (data['keywords_version'] as num?)?.toInt() ?? 0;
-      final grew = augmented.length > currentGenres.length;
+      final genresGrew = augmented.length > currentGenres.length;
+      final subsGrew = augmentedSubs.length > currentSubgenres.length;
       final needsVersionBump = storedVersion < kKeywordsVersion;
-      if (!grew && !needsVersionBump) return;
+      if (!genresGrew && !subsGrew && !needsVersionBump) return;
       final update = <String, dynamic>{
         'keywords_fetched': true,
         'keywords_version': kKeywordsVersion,
       };
-      if (grew) update['genres'] = augmented;
+      if (genresGrew) update['genres'] = augmented;
+      if (subsGrew) update['subgenres'] = augmentedSubs.toList();
       await docRef.update(update);
     } catch (_) {
       // Same rationale as stampImdbId — a missing doc or transient
@@ -748,8 +755,13 @@ class RecommendationsService {
           final currentGenres = (data['genres'] as List? ?? const [])
               .whereType<String>()
               .toList();
+          final currentSubgenres = (data['subgenres'] as List? ?? const [])
+              .whereType<String>()
+              .toSet();
           final augmented =
               augmentGenresWithKeywords(currentGenres, keywordIds);
+          final augmentedSubs =
+              augmentSubgenresWithKeywords(currentSubgenres, keywordIds);
 
           final update = <String, dynamic>{
             'keywords_fetched': true,
@@ -757,6 +769,9 @@ class RecommendationsService {
           };
           if (augmented.length > currentGenres.length) {
             update['genres'] = augmented;
+          }
+          if (augmentedSubs.length > currentSubgenres.length) {
+            update['subgenres'] = augmentedSubs.toList();
           }
           await docRef.update(update);
         } catch (_) {
@@ -1065,8 +1080,10 @@ String computeRefreshStateHash({
   required String mode,
   required String ratingSignature,
   required String watchSignature,
+  Set<String> subgenres = const <String>{},
 }) {
   final sortedGenres = (genres.toList()..sort()).join(',');
+  final sortedSubs = (subgenres.toList()..sort()).join(',');
   return [
     householdId,
     sortedGenres,
@@ -1081,5 +1098,6 @@ String computeRefreshStateHash({
     mode,
     ratingSignature,
     watchSignature,
+    'subs:$sortedSubs',
   ].join('|');
 }

@@ -14,6 +14,7 @@ import 'mode_provider.dart';
 import 'ratings_provider.dart';
 import 'runtime_filter_provider.dart';
 import 'sort_mode_provider.dart';
+import 'subgenre_filter_provider.dart';
 import 'watch_entries_provider.dart';
 import 'watchlist_provider.dart';
 import 'year_filter_provider.dart';
@@ -64,6 +65,7 @@ final refreshRecommendationsProvider =
   final watchlist = ref.read(watchlistProvider).value ?? const [];
 
   final genres = ref.read(selectedGenresProvider);
+  final subgenres = ref.read(selectedSubGenresProvider);
   final year = ref.read(yearRangeProvider);
   final runtime = ref.read(runtimeFilterProvider);
   final mediaType = ref.read(mediaTypeFilterProvider);
@@ -95,6 +97,7 @@ final refreshRecommendationsProvider =
     watchSignature: watchEntries
         .map((w) => '${w.id}@${w.inProgressStatus ?? ""}@${w.watchedBy.length}')
         .join(','),
+    subgenres: subgenres,
   );
 
   return await service.refresh(

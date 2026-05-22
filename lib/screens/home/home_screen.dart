@@ -24,6 +24,7 @@ import '../../providers/ratings_provider.dart';
 import '../../providers/recommendations_provider.dart';
 import '../../providers/runtime_filter_provider.dart';
 import '../../providers/sort_mode_provider.dart';
+import '../../providers/subgenre_filter_provider.dart';
 import '../../providers/upcoming_provider.dart';
 import '../../providers/up_next_style_provider.dart';
 import '../../providers/upnext_provider.dart';
@@ -33,6 +34,7 @@ import '../../screens/concierge/concierge_sheet.dart';
 import '../../screens/like_these/like_these_sheet.dart';
 import '../../services/tmdb_service.dart';
 import '../../utils/animation_cap.dart';
+import '../../utils/keyword_genre_augment.dart';
 import '../../utils/tmdb_genres.dart';
 import '../../utils/oscar_winners.dart';
 import '../../utils/rec_explainer.dart';
@@ -167,6 +169,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final mode = ref.watch(viewModeProvider);
     final selectedGenres = ref.watch(selectedGenresProvider);
+    final selectedSubgenres = ref.watch(selectedSubGenresProvider);
     final runtime = ref.watch(runtimeFilterProvider);
     final yearRange = ref.watch(yearRangeProvider);
     final mediaType = ref.watch(mediaTypeFilterProvider);
@@ -232,6 +235,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 selectedGenres.every((g) => genreMatches(r.genres, g)))
             .toList();
 
+    // Sub-genre filter — same AND-intersection contract as Genre (gotcha 10).
+    // Empty selection = no constraint. Active selection drops recs whose
+    // `subgenres` set doesn't contain every selected tag — including recs
+    // with empty `subgenres` (mirrors the "unclassified drops out" rule for
+    // genres). Tags are populated by the keyword-augmentation pipeline via
+    // `kKeywordToSubgenres`; Home + refresh trigger backfills so cold pools
+    // enrich without a manual pull.
+    final subgenreFiltered = selectedSubgenres.isEmpty
+        ? genreFiltered
+        : genreFiltered
+            .where((r) => subgenreMatches(r.subgenres, selectedSubgenres))
+            .toList();
+
     // Runtime filter — null bucket = show everything. An active bucket is
     // strict: unknown-runtime recs drop out. The service fires a runtime-aware
     // `/discover` pass when a bucket is active, so the pool has candidates
@@ -240,8 +256,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // intentionally excluded — we can't honestly show them under a specific
     // length filter.
     final runtimeFiltered = runtime == null
-        ? genreFiltered
-        : genreFiltered.where((r) => runtime.matches(r.runtime)).toList();
+        ? subgenreFiltered
+        : subgenreFiltered.where((r) => runtime.matches(r.runtime)).toList();
 
     // Year filter — unbounded range = show everything; any active bound
     // drops unknown-year items (same "don't mislead under a specific era"
@@ -456,6 +472,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             _FiltersPanel(
               selectedGenres: selectedGenres,
+              selectedSubgenres: selectedSubgenres,
               runtime: runtime,
               yearRange: yearRange,
               mediaType: mediaType,
@@ -467,6 +484,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onEditGenres: () => _openGenreSheet(context, ref, mode),
               onClearGenres: () =>
                   ref.read(modeGenreProvider.notifier).clear(mode),
+              onToggleSubgenre: (tag) =>
+                  ref.read(modeSubgenreProvider.notifier).toggle(mode, tag),
+              onClearSubgenres: () =>
+                  ref.read(modeSubgenreProvider.notifier).clear(mode),
               onRuntimeSelect: (b) =>
                   ref.read(modeRuntimeProvider.notifier).set(mode, b),
               onYearRangeChanged: (r) =>
@@ -622,6 +643,7 @@ class _HomeAction extends StatelessWidget {
 /// to check state.
 class _FiltersPanel extends StatefulWidget {
   final Set<String> selectedGenres;
+  final Set<String> selectedSubgenres;
   final RuntimeBucket? runtime;
   final YearRange yearRange;
   final MediaTypeFilter? mediaType;
@@ -631,6 +653,8 @@ class _FiltersPanel extends StatefulWidget {
   final bool includeWatched;
   final VoidCallback onEditGenres;
   final VoidCallback onClearGenres;
+  final ValueChanged<String> onToggleSubgenre;
+  final VoidCallback onClearSubgenres;
   final ValueChanged<RuntimeBucket?> onRuntimeSelect;
   final ValueChanged<YearRange> onYearRangeChanged;
   final ValueChanged<MediaTypeFilter?> onMediaTypeSelect;
@@ -643,6 +667,7 @@ class _FiltersPanel extends StatefulWidget {
 
   const _FiltersPanel({
     required this.selectedGenres,
+    required this.selectedSubgenres,
     required this.runtime,
     required this.yearRange,
     required this.mediaType,
@@ -652,6 +677,8 @@ class _FiltersPanel extends StatefulWidget {
     required this.includeWatched,
     required this.onEditGenres,
     required this.onClearGenres,
+    required this.onToggleSubgenre,
+    required this.onClearSubgenres,
     required this.onRuntimeSelect,
     required this.onYearRangeChanged,
     required this.onMediaTypeSelect,
@@ -673,6 +700,7 @@ class _FiltersPanelState extends State<_FiltersPanel> {
   int get _activeCount {
     var n = 0;
     if (widget.selectedGenres.isNotEmpty) n += 1;
+    if (widget.selectedSubgenres.isNotEmpty) n += 1;
     if (widget.runtime != null) n += 1;
     if (widget.yearRange.hasAnyBound) n += 1;
     if (widget.mediaType != null) n += 1;
@@ -693,6 +721,15 @@ class _FiltersPanelState extends State<_FiltersPanel> {
       parts.add(list.length <= 2
           ? list.join(', ')
           : '${list.length} genres');
+    }
+    if (widget.selectedSubgenres.isNotEmpty) {
+      final list = widget.selectedSubgenres
+          .map(subgenreLabel)
+          .toList()
+        ..sort();
+      parts.add(list.length <= 2
+          ? list.join(', ')
+          : '${list.length} sub-topics');
     }
     if (widget.mediaType != null) parts.add(widget.mediaType!.label);
     if (widget.runtime != null) parts.add(widget.runtime!.label);
@@ -837,6 +874,11 @@ class _FiltersPanelState extends State<_FiltersPanel> {
                   selected: widget.selectedGenres,
                   onEdit: widget.onEditGenres,
                   onClear: widget.onClearGenres,
+                ),
+                _SubGenreSection(
+                  selected: widget.selectedSubgenres,
+                  onToggle: widget.onToggleSubgenre,
+                  onClear: widget.onClearSubgenres,
                 ),
                 const _FilterSectionLabel('Length'),
                 _RuntimeSegment(
@@ -1038,6 +1080,176 @@ class _GenreChipsRow extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ─── Sub-topics section ───────────────────────────────────────────────────────
+
+/// Default-collapsed section that hosts a multi-select chip grid of
+/// sub-genre / sub-topic tags. Parallel axis to Genre: AND-intersection
+/// within sub-topics AND between Genre and sub-topics (gotcha 10
+/// contract). Tags are populated by the keyword augmentation pipeline so
+/// the visible chip list is the same on every screen and survives across
+/// modes (the SELECTION is per-mode; the available tag set is global).
+///
+/// Default-collapsed so the panel's visual weight stays close to the
+/// pre-feature baseline — the user opts in by tapping the section header,
+/// at which point the full chip grid expands. Header carries an active
+/// count + summary label so the collapsed state is informative.
+class _SubGenreSection extends StatefulWidget {
+  final Set<String> selected;
+  final ValueChanged<String> onToggle;
+  final VoidCallback onClear;
+
+  const _SubGenreSection({
+    required this.selected,
+    required this.onToggle,
+    required this.onClear,
+  });
+
+  @override
+  State<_SubGenreSection> createState() => _SubGenreSectionState();
+}
+
+class _SubGenreSectionState extends State<_SubGenreSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final active = widget.selected.length;
+    final allTags = kAllSubgenres;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+            child: Row(
+              children: [
+                Text(
+                  'SUB-TOPICS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.6,
+                    color: active > 0
+                        ? primary
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.6),
+                  ),
+                ),
+                if (active > 0) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: primary.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$active',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: primary,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _expanded
+                        ? 'Animal docs, slasher horror, …'
+                        : (active == 0
+                            ? 'Animal docs, slasher horror, …'
+                            : _subgenreSummary(widget.selected)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.white54,
+                    ),
+                  ),
+                ),
+                AnimatedRotation(
+                  turns: _expanded ? 0.5 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: const Icon(
+                    Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: Colors.white54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 200),
+          firstCurve: Curves.easeOut,
+          secondCurve: Curves.easeIn,
+          sizeCurve: Curves.easeInOut,
+          crossFadeState:
+              _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+          firstChild: const SizedBox(width: double.infinity, height: 0),
+          secondChild: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final tag in allTags)
+                      FilterChip(
+                        label: Text(subgenreLabel(tag)),
+                        selected: widget.selected.contains(tag),
+                        onSelected: (_) => widget.onToggle(tag),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize:
+                            MaterialTapTargetSize.shrinkWrap,
+                      ),
+                  ],
+                ),
+                if (widget.selected.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 0),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: widget.onClear,
+                      icon: const Icon(Icons.clear, size: 14),
+                      label: const Text('Clear sub-topics',
+                          style: TextStyle(fontSize: 12)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _subgenreSummary(Set<String> tags) {
+  if (tags.isEmpty) return '';
+  final labels = tags.map(subgenreLabel).toList()..sort();
+  if (labels.length <= 2) return labels.join(', ');
+  return '${labels.length} sub-topics';
 }
 
 // ─── Flat filter section helpers ──────────────────────────────────────────────

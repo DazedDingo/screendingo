@@ -2597,5 +2597,83 @@ void main() {
         call(genres: {'Drama'}, yearMin: 1970, mode: 'solo'),
       );
     });
+
+    test('sub-genre selection busts the hash (positive case)', () {
+      // Locks gotcha 15c — any sub-genre change should bust the dedupe so
+      // a refresh actually runs after the user picks a new sub-topic.
+      final base = computeRefreshStateHash(
+        householdId: 'hh',
+        genres: const {},
+        yearMin: null,
+        yearMax: null,
+        runtime: null,
+        mediaType: null,
+        awards: null,
+        sortMode: 'topRated',
+        curatedSource: 'none',
+        includeWatched: false,
+        mode: 'together',
+        ratingSignature: '',
+        watchSignature: '',
+        subgenres: const {},
+      );
+      final withSub = computeRefreshStateHash(
+        householdId: 'hh',
+        genres: const {},
+        yearMin: null,
+        yearMax: null,
+        runtime: null,
+        mediaType: null,
+        awards: null,
+        sortMode: 'topRated',
+        curatedSource: 'none',
+        includeWatched: false,
+        mode: 'together',
+        ratingSignature: '',
+        watchSignature: '',
+        subgenres: const {'wildlife'},
+      );
+      expect(withSub, isNot(base));
+    });
+
+    test('identical sub-genre sets produce identical hashes (negative case)',
+        () {
+      // Order doesn't matter; the same selection in any iteration order
+      // must hash the same so toggling a chip to the same state doesn't
+      // bust the cache spuriously.
+      final a = computeRefreshStateHash(
+        householdId: 'hh',
+        genres: const {},
+        yearMin: null,
+        yearMax: null,
+        runtime: null,
+        mediaType: null,
+        awards: null,
+        sortMode: 'topRated',
+        curatedSource: 'none',
+        includeWatched: false,
+        mode: 'together',
+        ratingSignature: '',
+        watchSignature: '',
+        subgenres: const {'wildlife', 'slasher'},
+      );
+      final b = computeRefreshStateHash(
+        householdId: 'hh',
+        genres: const {},
+        yearMin: null,
+        yearMax: null,
+        runtime: null,
+        mediaType: null,
+        awards: null,
+        sortMode: 'topRated',
+        curatedSource: 'none',
+        includeWatched: false,
+        mode: 'together',
+        ratingSignature: '',
+        watchSignature: '',
+        subgenres: const {'slasher', 'wildlife'},
+      );
+      expect(a, b);
+    });
   });
 }

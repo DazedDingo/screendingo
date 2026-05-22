@@ -23,11 +23,15 @@
 /// Keys are TMDB keyword ids; values are sets of canonical genre names
 /// matching those in `utils/tmdb_genres.dart`. Unknown genre names are
 /// harmless — `augmentGenresWithKeywords` just unions them in.
-/// Bump when [kKeywordToExtraGenres] gains meaningful new entries that should
-/// re-augment previously-fetched rec docs. Rec docs store the version that
-/// was live when they were last augmented; the service re-fetches keywords
-/// (and re-runs augmentation) whenever the stored version is older than this.
-const int kKeywordsVersion = 2;
+/// Bump when [kKeywordToExtraGenres] OR [kKeywordToSubgenres] gains meaningful
+/// new entries that should re-augment previously-fetched rec docs. Rec docs
+/// store the version that was live when they were last augmented; the service
+/// re-fetches keywords (and re-runs augmentation for BOTH genres + sub-genres)
+/// whenever the stored version is older than this.
+///
+/// Single version covers both axes — the same `/keywords` fetch feeds both
+/// maps, so one stamp per doc keeps the backfill walk simple.
+const int kKeywordsVersion = 3;
 
 const Map<int, Set<String>> kKeywordToExtraGenres = <int, Set<String>>{
   // ---- seed entries (pre-generator, kept for sanity / back-compat) ----
@@ -97,4 +101,159 @@ List<String> augmentGenresWithKeywords(
     }
   }
   return out;
+}
+
+/// Maps TMDB keyword ids → sub-genre tag names. Parallel axis to
+/// [kKeywordToExtraGenres]: instead of widening canonical Genre names,
+/// this layer tags titles with narrower flavour labels ("wildlife",
+/// "true_crime", "slasher", …) that the user can multi-select on Home as
+/// a filter parallel to genres.
+///
+/// Semantics: AND-intersection within sub-genres AND between Genre and
+/// sub-genres — exactly like the Genre filter (see CLAUDE.md gotcha 10).
+/// Selecting Genre=Documentary + Sub-topic=wildlife returns titles whose
+/// canonical genres contain Documentary AND whose sub-genre set contains
+/// wildlife. Empty selection on either axis = no constraint on that axis.
+///
+/// Tags are snake_case internal keys; the UI maps them to human-readable
+/// labels (e.g. "wildlife" → "Animal docs"). Multiple keyword ids can
+/// share a tag — every keyword that reliably implies "wildlife" maps to
+/// the same `wildlife` string, so any one of them widens the title's tag
+/// set. Tags do NOT need to match canonical genre names.
+///
+/// Keys verified against TMDB `/search/keyword` on 2026-04-28; see
+/// `scripts/generate_keyword_genre_map.py` for the lookup pattern. Drop
+/// any tag whose keyword ids you can't verify — don't ship a sub-genre
+/// that maps to keywords TMDB doesn't actually use.
+const Map<int, Set<String>> kKeywordToSubgenres = <int, Set<String>>{
+  // ── wildlife (the animal-documentaries case) ──
+  9902: {'wildlife'}, // wildlife
+  18330: {'wildlife'}, // nature
+  18165: {'wildlife'}, // animals
+  361118: {'wildlife'}, // animal
+  221355: {'wildlife'}, // nature documentary
+  324404: {'wildlife'}, // wildlife documentary
+  // ── true crime ──
+  33722: {'true_crime'}, // true crime
+  // ── music documentaries ──
+  246377: {'music_doc'}, // music documentary
+  156205: {'music_doc'}, // concert film
+  33899: {'music_doc'}, // rockumentary
+  // ── history documentaries ──
+  321490: {'history_doc'}, // historical documentary
+  // ── science + tech ──
+  287067: {'science_tech'}, // science
+  1576: {'science_tech'}, // technology
+  191132: {'science_tech'}, // space exploration
+  325892: {'science_tech'}, // science documentary
+  // ── sport documentaries ──
+  159290: {'sport_doc'}, // sports documentary
+  // ── horror flavours (reuse the verified genre-augment ids) ──
+  12339: {'slasher'}, // slasher
+  163053: {'found_footage'}, // found footage
+  295907: {'psychological_horror'}, // psychological horror
+  215959: {'cosmic_horror'}, // cosmic horror
+  3133: {'vampire'}, // vampire
+  12377: {'zombie'}, // zombie
+  // ── sci-fi flavours ──
+  12190: {'cyberpunk'}, // cyberpunk
+  161176: {'space_opera'}, // space opera
+  161791: {'kaiju'}, // kaiju
+  // ── crime flavours ──
+  10051: {'heist'}, // heist
+};
+
+/// Returns a sub-genre set combining [currentSubgenres] with any tags
+/// implied by [keywordIds] per [kKeywordToSubgenres]. Mirrors
+/// [augmentGenresWithKeywords] but for the parallel sub-genre axis.
+///
+/// Pure / additive — never removes existing tags. Unknown keyword ids
+/// are silently skipped. Empty inputs return an empty set.
+Set<String> augmentSubgenresWithKeywords(
+  Iterable<String> currentSubgenres,
+  Iterable<int> keywordIds,
+) {
+  final out = <String>{};
+  for (final s in currentSubgenres) {
+    if (s.isEmpty) continue;
+    out.add(s);
+  }
+  for (final id in keywordIds) {
+    final extras = kKeywordToSubgenres[id];
+    if (extras == null) continue;
+    out.addAll(extras);
+  }
+  return out;
+}
+
+/// Returns true when [recSubgenres] satisfies every tag in
+/// [selectedSubgenres]. Empty [selectedSubgenres] always matches (no
+/// filter). AND-intersection semantics — same contract as the Genre
+/// filter (gotcha 10): a rec with empty `subgenres` drops out under any
+/// non-empty selection because "tagged with all of these" can't be
+/// verified for an empty tag set.
+bool subgenreMatches(
+  Set<String> recSubgenres,
+  Set<String> selectedSubgenres,
+) {
+  if (selectedSubgenres.isEmpty) return true;
+  for (final s in selectedSubgenres) {
+    if (!recSubgenres.contains(s)) return false;
+  }
+  return true;
+}
+
+/// Human-readable display label for a sub-genre tag (snake_case → Title
+/// Case with friendly variants). Used by the Home filter panel's
+/// Sub-topics section so chips read as "Animal docs", "True crime", etc.
+/// Unknown tags fall back to a Title-Case rendering of the key.
+String subgenreLabel(String tag) => switch (tag) {
+      'wildlife' => 'Animal docs',
+      'true_crime' => 'True crime',
+      'music_doc' => 'Music docs',
+      'history_doc' => 'History docs',
+      'science_tech' => 'Science & tech',
+      'sport_doc' => 'Sports docs',
+      'slasher' => 'Slasher horror',
+      'found_footage' => 'Found footage',
+      'psychological_horror' => 'Psychological horror',
+      'cosmic_horror' => 'Cosmic horror',
+      'vampire' => 'Vampire',
+      'zombie' => 'Zombie',
+      'cyberpunk' => 'Cyberpunk',
+      'space_opera' => 'Space opera',
+      'kaiju' => 'Kaiju',
+      'heist' => 'Heist',
+      _ => tag
+          .split('_')
+          .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' '),
+    };
+
+/// The full set of known sub-genre tags, alphabetised by display label.
+/// Source of truth for the Home filter panel's Sub-topics chip grid.
+List<String> get kAllSubgenres {
+  final set = <String>{};
+  for (final tags in kKeywordToSubgenres.values) {
+    set.addAll(tags);
+  }
+  final list = set.toList();
+  list.sort((a, b) => subgenreLabel(a).compareTo(subgenreLabel(b)));
+  return List.unmodifiable(list);
+}
+
+/// Inverse map: sub-genre tag → TMDB keyword ids that imply it. Used by
+/// the discover-pool augmentation path so when a user selects sub-genre
+/// filters, the refresh's `/discover` call can OR-pipe the relevant
+/// keyword ids in `with_keywords` to seed the pool with sub-genre-
+/// relevant titles instead of relying purely on the client filter to
+/// find them after the fact.
+Map<String, Set<int>> get kSubgenreToKeywordIds {
+  final out = <String, Set<int>>{};
+  kKeywordToSubgenres.forEach((kid, tags) {
+    for (final t in tags) {
+      out.putIfAbsent(t, () => <int>{}).add(kid);
+    }
+  });
+  return Map.unmodifiable(out);
 }
