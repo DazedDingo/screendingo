@@ -104,6 +104,7 @@ final refreshRecommendationsProvider =
     householdId,
     watchlist: watchlist,
     genreFilters: genres,
+    subgenreFilters: subgenres,
     yearRange: year,
     runtimeBucket: runtime,
     mediaTypeFilter: mediaType,

@@ -803,6 +803,44 @@ void main() {
       await tmdb.discoverPaged(mediaType: 'movie', genreIds: const [28]);
       expect(calls.first.queryParameters.containsKey('with_keywords'), isFalse);
     });
+
+    test('multi-id keywordIds are joined with pipe (OR), not comma (AND)',
+        () async {
+      // Sub-topic filtering (gotcha 43b) maps each tag to a SET of TMDB
+      // keyword ids that imply it ("wildlife" → 6 ids). TMDB's
+      // `with_keywords=a,b` is AND-semantics — a title would need EVERY
+      // listed keyword tagged, which never happens. `a|b` is OR-semantics:
+      // any single keyword match qualifies. The wrong separator is the
+      // failure mode that silently returns zero animal docs.
+      final calls = <Uri>[];
+      final tmdb = TmdbService(
+        client: MockClient((req) async {
+          calls.add(req.url);
+          return http.Response(
+            json.encode({
+              'results': [
+                {'id': 1, 'title': 'A'},
+              ],
+              'total_pages': 1,
+            }),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await tmdb.discoverPaged(
+        mediaType: 'movie',
+        keywordIds: const [9902, 18330, 18165],
+        poolFloor: 1,
+      );
+      expect(calls, isNotEmpty);
+      final raw = calls.first.queryParameters['with_keywords'];
+      expect(raw, isNotNull);
+      expect(raw, contains('|'),
+          reason: 'multi-id keyword list must use pipe-OR, not comma-AND');
+      expect(raw!.split('|').map(int.parse).toSet(),
+          equals({9902, 18330, 18165}));
+    });
   });
 
   group('TmdbService.discoverPaged — excludeGenreIds (no-animation etc)', () {

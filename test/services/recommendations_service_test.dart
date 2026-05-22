@@ -2123,6 +2123,152 @@ void main() {
     });
   });
 
+  // ─── RecommendationsService.refresh — sub-topic → with_keywords plumbing ─
+  //
+  // v0.10.0 shipped sub-topics as a client-side-only AND filter — picking
+  // "animal docs" filtered the existing rec pool but never pulled any animal
+  // docs INTO the pool, so "Documentary + animal docs" returned zero when
+  // the pool happened to lack them (most households' Documentary pools skew
+  // true-crime / history / music). v0.10.2 fixes this by piping the selected
+  // sub-topics' TMDB keyword ids into the discover query's `with_keywords`.
+  group('RecommendationsService.refresh — sub-topic keyword plumbing', () {
+    test('subgenreFilters → keyword ids pipe-OR\'d into with_keywords',
+        () async {
+      final calls = <Uri>[];
+      final client = MockClient((req) async {
+        calls.add(req.url);
+        return http.Response(
+          json.encode({
+            'results': [
+              {
+                'id': 7777,
+                'media_type': 'movie',
+                'title': 'Our Planet',
+                'genre_ids': [99],
+                'release_date': '2019-04-05',
+              },
+            ],
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      });
+      final tmdb = TmdbService(client: client);
+      final db = FakeFirebaseFirestore();
+      final svc = RecommendationsService(db: db, tmdb: tmdb);
+
+      await svc.refresh(
+        'hh-subgenre',
+        watchlist: const [],
+        genreFilters: const {'Documentary'},
+        subgenreFilters: const {'wildlife'},
+      );
+
+      final discoverCalls = calls
+          .where((u) =>
+              u.path.contains('/discover/movie') ||
+              u.path.contains('/discover/tv'))
+          .toList();
+      expect(discoverCalls, isNotEmpty,
+          reason: 'sub-topic + genre selection must trigger discoverPaged');
+
+      // Every discover call must carry with_keywords AND it must be the
+      // pipe-OR union of every TMDB keyword id implying the selected
+      // sub-topic ("wildlife" → {9902, 18330, 18165, 361118, 221355, 324404}).
+      final expectedIds = kSubgenreToKeywordIds['wildlife']!;
+      for (final c in discoverCalls) {
+        final raw = c.queryParameters['with_keywords'];
+        expect(raw, isNotNull,
+            reason: 'with_keywords must survive every discover fallback rung');
+        final ids = raw!.split('|').map(int.parse).toSet();
+        expect(ids, equals(expectedIds),
+            reason:
+                'OR-union of every wildlife-implying keyword id must reach TMDB');
+      }
+    });
+
+    test('multiple sub-topics union into one pipe-OR keyword list', () async {
+      final calls = <Uri>[];
+      final client = MockClient((req) async {
+        calls.add(req.url);
+        return http.Response(
+          json.encode({'results': const []}),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      });
+      final tmdb = TmdbService(client: client);
+      final db = FakeFirebaseFirestore();
+      final svc = RecommendationsService(db: db, tmdb: tmdb);
+
+      await svc.refresh(
+        'hh-multi',
+        watchlist: const [],
+        subgenreFilters: const {'wildlife', 'music_doc'},
+      );
+
+      final discoverCalls = calls
+          .where((u) =>
+              u.path.contains('/discover/movie') ||
+              u.path.contains('/discover/tv'))
+          .toList();
+      expect(discoverCalls, isNotEmpty);
+
+      final expected = <int>{
+        ...?kSubgenreToKeywordIds['wildlife'],
+        ...?kSubgenreToKeywordIds['music_doc'],
+      };
+      // Sanity: the test setup itself relies on both tags being mapped to
+      // ≥1 keyword. If a future refactor empties one of these, the union
+      // would silently collapse and the test would still pass — guard it.
+      expect(expected.length, greaterThanOrEqualTo(2),
+          reason:
+              'both sub-topics must contribute keyword ids; check kKeywordToSubgenres if this trips');
+      for (final c in discoverCalls) {
+        final raw = c.queryParameters['with_keywords'];
+        final ids = raw!.split('|').map(int.parse).toSet();
+        expect(ids, equals(expected),
+            reason: 'union of both sub-topics\' keyword ids must be sent');
+      }
+    });
+
+    test('no sub-topic selected → no with_keywords on discover (no regression)',
+        () async {
+      final calls = <Uri>[];
+      final client = MockClient((req) async {
+        calls.add(req.url);
+        return http.Response(
+          json.encode({'results': const []}),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      });
+      final tmdb = TmdbService(client: client);
+      final db = FakeFirebaseFirestore();
+      final svc = RecommendationsService(db: db, tmdb: tmdb);
+
+      await svc.refresh(
+        'hh-none',
+        watchlist: const [],
+        genreFilters: const {'Documentary'},
+        // subgenreFilters omitted → default empty
+      );
+
+      final discoverCalls = calls
+          .where((u) =>
+              u.path.contains('/discover/movie') ||
+              u.path.contains('/discover/tv'))
+          .toList();
+      expect(discoverCalls, isNotEmpty,
+          reason: 'Documentary genre alone should still trigger discover');
+      for (final c in discoverCalls) {
+        expect(c.queryParameters.containsKey('with_keywords'), isFalse,
+            reason:
+                'empty sub-topic selection must not inject a stale keyword filter');
+      }
+    });
+  });
+
   // ─── buildCandidates — oscar baked list ────────────────────────────────
   //
   // The Oscar filter delegates to a curated Best Picture winners list
@@ -2331,6 +2477,7 @@ void main() {
   group('isNarrowFilterCombo', () {
     bool call({
       Set<String> genreFilters = const {},
+      Set<String> subgenreFilters = const {},
       YearRange yearRange = const YearRange.unbounded(),
       RuntimeBucket? runtimeBucket,
       bool oscarOnly = false,
@@ -2339,6 +2486,7 @@ void main() {
     }) {
       return isNarrowFilterCombo(
         genreFilters: genreFilters,
+        subgenreFilters: subgenreFilters,
         yearRange: yearRange,
         runtimeBucket: runtimeBucket,
         oscarOnly: oscarOnly,
@@ -2353,6 +2501,7 @@ void main() {
 
     test('one filter → not narrow (default pool budget is fine)', () {
       expect(call(genreFilters: {'War'}), isFalse);
+      expect(call(subgenreFilters: {'wildlife'}), isFalse);
       expect(call(yearRange: const YearRange(minYear: 1970, maxYear: 1989)),
           isFalse);
       expect(call(runtimeBucket: RuntimeBucket.medium), isFalse);
@@ -2375,6 +2524,14 @@ void main() {
       );
       expect(
         call(oscarOnly: true, curatedSource: CuratedSource.a24),
+        isTrue,
+      );
+      // Sub-topics are orthogonal to genre — "Documentary + animal docs" is
+      // a narrow combo and needs the wider discoverPaged budget (otherwise
+      // the niche animal-doc pool is too thin and the AND-intersection ends
+      // up empty even after server-side keyword augmentation pulls them in).
+      expect(
+        call(genreFilters: {'Documentary'}, subgenreFilters: {'wildlife'}),
         isTrue,
       );
     });

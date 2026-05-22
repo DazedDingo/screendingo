@@ -156,6 +156,7 @@ class RecommendationsService {
     required List<WatchlistItem> watchlist,
     int tmdbCap = 10,
     Set<String> genreFilters = const {},
+    Set<String> subgenreFilters = const {},
     YearRange yearRange = const YearRange.unbounded(),
     RuntimeBucket? runtimeBucket,
     MediaTypeFilter? mediaTypeFilter,
@@ -224,6 +225,7 @@ class RecommendationsService {
     Map<String, dynamic> discoverMovies = const {};
     Map<String, dynamic> discoverTv = const {};
     final hasFilters = genreFilters.isNotEmpty ||
+        subgenreFilters.isNotEmpty ||
         yearRange.hasAnyBound ||
         runtimeBucket != null ||
         mediaTypeFilter != null ||
@@ -247,6 +249,7 @@ class RecommendationsService {
     // — otherwise the extra 60 rows get fetched then thrown away.
     final narrow = isNarrowFilterCombo(
       genreFilters: genreFilters,
+      subgenreFilters: subgenreFilters,
       yearRange: yearRange,
       runtimeBucket: runtimeBucket,
       oscarOnly: oscarOnly,
@@ -270,7 +273,19 @@ class RecommendationsService {
       // pass `kOscarKeywordId` into the discover call anymore. Keeping
       // the constant around for back-compat (tests reference it) but
       // the refresh path no longer uses it.
-      const List<int> keywordIds = <int>[];
+      //
+      // Sub-topics (gotcha 43b) push their implying TMDB keyword ids into
+      // `with_keywords` here so refreshes actually pull matching titles
+      // INTO the rec pool. Without this, "Documentary + animal docs" filters
+      // the existing pool client-side but the pool itself never contained
+      // any animal docs to filter, so the AND-intersection returned zero.
+      // OR-union across all selected sub-topics: pipe-joined in tmdb_service
+      // (gotcha 43c), then the client-side AND filter (gotcha 43b) narrows
+      // back down to the true intersection.
+      final keywordIds = <int>{
+        for (final tag in subgenreFilters)
+          ...?kSubgenreToKeywordIds[tag],
+      }.toList();
       final discoverResults = await Future.wait([
         if (fetchMovies)
           _safeTmdb(() => _tmdb.discoverPaged(
@@ -1049,9 +1064,11 @@ bool isNarrowFilterCombo({
   required bool oscarOnly,
   required CuratedSource curatedSource,
   required SortMode sortMode,
+  Set<String> subgenreFilters = const {},
 }) {
   var n = 0;
   if (genreFilters.isNotEmpty) n++;
+  if (subgenreFilters.isNotEmpty) n++;
   if (yearRange.hasAnyBound) n++;
   if (runtimeBucket != null) n++;
   if (oscarOnly) n++;

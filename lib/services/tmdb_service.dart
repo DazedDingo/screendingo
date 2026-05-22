@@ -209,11 +209,18 @@ class TmdbService {
         p['with_companies'] = withCompanies;
       }
       if (ids.isNotEmpty) p['with_genres'] = ids.join(joinOp);
-      // Keywords (e.g. TMDB's "oscar-winning-film" keyword 210024) are
-      // preserved across every fallback rung — dropping them would defeat
-      // the whole point of the filter (e.g. an Oscar-only query that fell
-      // back to "all genres" would suddenly show non-Oscar fare).
-      if (keywordIds.isNotEmpty) p['with_keywords'] = keywordIds.join(',');
+      // Keywords are preserved across every fallback rung — dropping them
+      // would defeat the whole point of the filter. Pipe-OR semantics: each
+      // sub-topic (e.g. "wildlife") maps to a SET of equivalent TMDB keyword
+      // ids ({wildlife, nature, animals, animal, nature documentary, wildlife
+      // documentary}), any one of which is sufficient signal. With multiple
+      // sub-topics selected, all ids are unioned into one pipe-OR query —
+      // intentionally over-fetching here so the client-side AND-intersection
+      // (gotcha 43b) has rows to narrow down. Comma-AND would require a title
+      // to carry EVERY listed keyword, which no real title does. (Historical
+      // note: the deprecated single-keyword Oscar path used comma, but with
+      // one id comma and pipe are equivalent.)
+      if (keywordIds.isNotEmpty) p['with_keywords'] = keywordIds.join('|');
       // Negative genre filter — also preserved across every fallback rung
       // for the same reason as keywords: the whole point of the toggle is to
       // keep these titles out even when the pool is thin.
