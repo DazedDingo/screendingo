@@ -877,6 +877,7 @@ class _FiltersPanelState extends State<_FiltersPanel> {
                 ),
                 _SubGenreSection(
                   selected: widget.selectedSubgenres,
+                  selectedGenres: widget.selectedGenres,
                   onToggle: widget.onToggleSubgenre,
                   onClear: widget.onClearSubgenres,
                 ),
@@ -1095,13 +1096,27 @@ class _GenreChipsRow extends ConsumerWidget {
 /// pre-feature baseline — the user opts in by tapping the section header,
 /// at which point the full chip grid expands. Header carries an active
 /// count + summary label so the collapsed state is informative.
+/// Contextual sub-topic chip grid. Visible chip set is derived from the
+/// user's currently-selected Genre set: a sub-topic chip is shown when
+/// at least one of its parent genres (kSubgenreParents) intersects with
+/// the selected genres (synonym-aware via genreMatches). Already-selected
+/// chips ALWAYS show too, so the user can deselect them even after
+/// clearing the parent genre.
+///
+/// No genre selected → the section's body becomes a "pick a genre to
+/// refine" hint instead of a long list of chips. This is the user-flagged
+/// design fix: in v0.10.0–0.10.2 the section showed all ~16 chips with
+/// no genre context, which read as "filter by sub-topic" but selecting
+/// e.g. "Animal docs" without Documentary was incoherent.
 class _SubGenreSection extends StatefulWidget {
   final Set<String> selected;
+  final Set<String> selectedGenres;
   final ValueChanged<String> onToggle;
   final VoidCallback onClear;
 
   const _SubGenreSection({
     required this.selected,
+    required this.selectedGenres,
     required this.onToggle,
     required this.onClear,
   });
@@ -1113,134 +1128,192 @@ class _SubGenreSection extends StatefulWidget {
 class _SubGenreSectionState extends State<_SubGenreSection> {
   bool _expanded = false;
 
+  /// Tags whose parent genre matches at least one selected Genre (synonym-
+  /// aware), UNIONed with currently-selected sub-topics (so the user can
+  /// always deselect a stale active filter even after the parent is gone).
+  /// Alphabetised by display label for stable chip ordering.
+  List<String> _visibleTags() {
+    final out = <String>{};
+    for (final tag in kAllSubgenres) {
+      if (widget.selected.contains(tag)) {
+        out.add(tag);
+        continue;
+      }
+      final parents = kSubgenreParents[tag] ?? const <String>{};
+      for (final parent in parents) {
+        if (genreMatches(widget.selectedGenres, parent)) {
+          out.add(tag);
+          break;
+        }
+      }
+    }
+    final list = out.toList();
+    list.sort((a, b) => subgenreLabel(a).compareTo(subgenreLabel(b)));
+    return list;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final cs = Theme.of(context).colorScheme;
+    final primary = cs.primary;
     final active = widget.selected.length;
-    final allTags = kAllSubgenres;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
-            child: Row(
-              children: [
-                Text(
-                  'SUB-TOPICS',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.6,
-                    color: active > 0
-                        ? primary
-                        : Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.6),
-                  ),
-                ),
-                if (active > 0) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: primary.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '$active',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: primary,
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _expanded
-                        ? 'Animal docs, slasher horror, …'
-                        : (active == 0
-                            ? 'Animal docs, slasher horror, …'
-                            : _subgenreSummary(widget.selected)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.white54,
-                    ),
-                  ),
-                ),
-                AnimatedRotation(
-                  turns: _expanded ? 0.5 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: const Icon(
-                    Icons.keyboard_arrow_down,
-                    size: 18,
-                    color: Colors.white54,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        AnimatedCrossFade(
-          duration: const Duration(milliseconds: 200),
-          firstCurve: Curves.easeOut,
-          secondCurve: Curves.easeIn,
-          sizeCurve: Curves.easeInOut,
-          crossFadeState:
-              _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-          firstChild: const SizedBox(width: double.infinity, height: 0),
-          secondChild: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
+    final visible = _visibleTags();
+    final hasContext = visible.isNotEmpty;
+    final summaryText = active == 0
+        ? (hasContext
+            ? 'Refine ${_describeContext(widget.selectedGenres)} (${visible.length} options)'
+            : 'Pick a genre to refine')
+        : _subgenreSummary(widget.selected);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+      child: Material(
+        color: _expanded
+            ? cs.surfaceContainerHighest.withValues(alpha: 0.5)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onTap: () => setState(() => _expanded = !_expanded),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding:
+                    const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                child: Row(
                   children: [
-                    for (final tag in allTags)
-                      FilterChip(
-                        label: Text(subgenreLabel(tag)),
-                        selected: widget.selected.contains(tag),
-                        onSelected: (_) => widget.onToggle(tag),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize:
-                            MaterialTapTargetSize.shrinkWrap,
+                    Icon(
+                      Icons.tune,
+                      size: 16,
+                      color: active > 0
+                          ? primary
+                          : cs.onSurface.withValues(alpha: 0.7),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Sub-topics',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: active > 0
+                            ? primary
+                            : cs.onSurface.withValues(alpha: 0.85),
                       ),
+                    ),
+                    if (active > 0) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: primary.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$active',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        summaryText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ),
+                    AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Icon(
+                        Icons.keyboard_arrow_down,
+                        size: 22,
+                        color: cs.onSurface.withValues(alpha: 0.75),
+                      ),
+                    ),
                   ],
                 ),
-                if (widget.selected.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 0),
-                        minimumSize: const Size(0, 30),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      onPressed: widget.onClear,
-                      icon: const Icon(Icons.clear, size: 14),
-                      label: const Text('Clear sub-topics',
-                          style: TextStyle(fontSize: 12)),
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
-          ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 200),
+              firstCurve: Curves.easeOut,
+              secondCurve: Curves.easeIn,
+              sizeCurve: Curves.easeInOut,
+              crossFadeState: _expanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              firstChild:
+                  const SizedBox(width: double.infinity, height: 0),
+              secondChild: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                child: hasContext
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              for (final tag in visible)
+                                FilterChip(
+                                  label: Text(subgenreLabel(tag)),
+                                  selected: widget.selected.contains(tag),
+                                  onSelected: (_) => widget.onToggle(tag),
+                                  visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                            ],
+                          ),
+                          if (widget.selected.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 0),
+                                  minimumSize: const Size(0, 30),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: widget.onClear,
+                                icon: const Icon(Icons.clear, size: 14),
+                                label: const Text('Clear sub-topics',
+                                    style: TextStyle(fontSize: 12)),
+                              ),
+                            ),
+                          ],
+                        ],
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Text(
+                          'Pick one or more genres above to filter '
+                          'by sub-topic.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            color: cs.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -1250,6 +1323,14 @@ String _subgenreSummary(Set<String> tags) {
   final labels = tags.map(subgenreLabel).toList()..sort();
   if (labels.length <= 2) return labels.join(', ');
   return '${labels.length} sub-topics';
+}
+
+String _describeContext(Set<String> selectedGenres) {
+  if (selectedGenres.isEmpty) return '';
+  final list = selectedGenres.toList()..sort();
+  if (list.length == 1) return list.single;
+  if (list.length == 2) return list.join(' + ');
+  return '${list.length} genres';
 }
 
 // ─── Flat filter section helpers ──────────────────────────────────────────────

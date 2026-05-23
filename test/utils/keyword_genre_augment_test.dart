@@ -311,7 +311,7 @@ void main() {
     test('subgenreLabel maps known tags to human-readable labels', () {
       expect(subgenreLabel('wildlife'), 'Animal docs');
       expect(subgenreLabel('true_crime'), 'True crime');
-      expect(subgenreLabel('slasher'), 'Slasher horror');
+      expect(subgenreLabel('slasher'), 'Slasher');
       expect(subgenreLabel('space_opera'), 'Space opera');
     });
 
@@ -346,6 +346,103 @@ void main() {
       expect(inv['wildlife']!.length, greaterThanOrEqualTo(2));
       // true_crime maps to a single keyword id.
       expect(inv['true_crime'], {33722});
+    });
+  });
+
+  // ─── Parent-genre contextual sub-topic contract ─────────────────────────
+  //
+  // Every shipped sub-topic must declare ≥1 parent genre. Without parent
+  // declaration the chip would never be visible in the contextual UI
+  // (gotcha 43b — only sub-topics whose parent intersects selected genres
+  // render), so an unparented tag is dead weight that bloats the map.
+  group('kSubgenreParents', () {
+    test('every kAllSubgenres tag has a parent declaration', () {
+      for (final tag in kAllSubgenres) {
+        expect(kSubgenreParents.containsKey(tag), isTrue,
+            reason:
+                'tag $tag has no kSubgenreParents entry — would never be visible');
+        expect(kSubgenreParents[tag]!, isNotEmpty,
+            reason: 'tag $tag has empty parent set');
+      }
+    });
+
+    test('parent names match canonical movie-genre vocabulary', () {
+      // Parents must be names from tmdb_genres.dart's MOVIE map (kGenreSynonyms
+      // handles TV→movie equivalence at lookup time). A typo'd parent would
+      // silently hide every chip for that tag.
+      const movieGenres = {
+        'Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary',
+        'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery',
+        'Romance', 'Science Fiction', 'Thriller', 'War', 'Western',
+      };
+      for (final entry in kSubgenreParents.entries) {
+        for (final p in entry.value) {
+          expect(movieGenres.contains(p), isTrue,
+              reason:
+                  '${entry.key} → $p is not a canonical movie-genre name');
+        }
+      }
+    });
+
+    test('Documentary sub-topics are all parented under Documentary', () {
+      // Smoke: the v0.10.3 Documentary fill (food/travel/political/etc.)
+      // shouldn't have drifted parents.
+      const docTags = {
+        'wildlife', 'true_crime', 'music_doc', 'history_doc',
+        'science_tech', 'sport_doc', 'food_doc', 'travel_doc',
+        'political_doc', 'environmental_doc',
+      };
+      for (final tag in docTags) {
+        expect(kSubgenreParents[tag], contains('Documentary'),
+            reason: '$tag should declare Documentary as a parent');
+      }
+    });
+
+    test('Crime now has ≥7 distinct sub-topics (lackluster fix)', () {
+      final crimeTags = kSubgenreParents.entries
+          .where((e) => e.value.contains('Crime'))
+          .map((e) => e.key)
+          .toSet();
+      expect(crimeTags.length, greaterThanOrEqualTo(7),
+          reason:
+              'Crime parent should host ≥7 sub-topics after v0.10.3 fill; '
+              'shipped: $crimeTags');
+    });
+  });
+
+  // ─── Genre-boost keywords (Horror sparse-results fix) ──────────────────
+  //
+  // TMDB has no TV Horror genre id, so picking just Horror used to return
+  // ~7 movies and zero TV. kGenreBoostKeywords['Horror'] pipes horror
+  // keyword ids into the discover query to pull TV horror INTO the pool,
+  // and the kKeywordToExtraGenres stamp brings them past the client-side
+  // AND filter.
+  group('kGenreBoostKeywords', () {
+    test('Horror has a non-trivial keyword boost', () {
+      final boost = kGenreBoostKeywords['Horror'];
+      expect(boost, isNotNull);
+      expect(boost!.length, greaterThanOrEqualTo(8),
+          reason: 'Horror needs broad keyword coverage to fill the TV pool');
+    });
+
+    test('every Horror boost keyword stamps Horror via kKeywordToExtraGenres',
+        () {
+      // The boost is useless if pulled-in TV titles don't get the Horror
+      // genre stamped — the client-side AND filter would drop them. This
+      // test pins the symmetry: every id in the boost set MUST have a
+      // kKeywordToExtraGenres entry that includes 'Horror'.
+      for (final kid in kGenreBoostKeywords['Horror']!) {
+        final extras = kKeywordToExtraGenres[kid];
+        expect(extras, isNotNull,
+            reason:
+                'boost keyword $kid is missing from kKeywordToExtraGenres; '
+                'TV titles tagged with it would be pulled in but never '
+                'stamped as Horror, so the client AND filter would drop them');
+        expect(extras!.contains('Horror'), isTrue,
+            reason:
+                'boost keyword $kid does not augment to Horror — symmetry '
+                'broken');
+      }
     });
   });
 }

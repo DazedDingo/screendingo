@@ -1267,7 +1267,7 @@ void main() {
               }
             : {
                 'results': [
-                  {'id': 10084, 'name': 'anime'},
+                  {'id': 210024, 'name': 'anime'},
                 ]
               };
         return http.Response(jsonEncode(body), 200,
@@ -2251,7 +2251,9 @@ void main() {
         'hh-none',
         watchlist: const [],
         genreFilters: const {'Documentary'},
-        // subgenreFilters omitted → default empty
+        // subgenreFilters omitted → default empty.
+        // Documentary has no kGenreBoostKeywords entry so this should
+        // still send zero with_keywords.
       );
 
       final discoverCalls = calls
@@ -2264,7 +2266,52 @@ void main() {
       for (final c in discoverCalls) {
         expect(c.queryParameters.containsKey('with_keywords'), isFalse,
             reason:
-                'empty sub-topic selection must not inject a stale keyword filter');
+                'empty sub-topic selection + no boost must not inject a stale keyword filter');
+      }
+    });
+
+    test('Horror genre alone fires kGenreBoostKeywords["Horror"] in discover',
+        () async {
+      // v0.10.3 sparse-Horror fix: TMDB has no TV Horror genre id, so the
+      // TV side of a Horror-only refresh had `with_genres=` empty and
+      // returned nothing. Genre-boost keywords pipe horror-flavour keyword
+      // ids into `with_keywords` so TV horror titles get pulled in.
+      final calls = <Uri>[];
+      final client = MockClient((req) async {
+        calls.add(req.url);
+        return http.Response(
+          json.encode({'results': const []}),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      });
+      final tmdb = TmdbService(client: client);
+      final db = FakeFirebaseFirestore();
+      final svc = RecommendationsService(db: db, tmdb: tmdb);
+
+      await svc.refresh(
+        'hh-horror',
+        watchlist: const [],
+        genreFilters: const {'Horror'},
+      );
+
+      final discoverCalls = calls
+          .where((u) =>
+              u.path.contains('/discover/movie') ||
+              u.path.contains('/discover/tv'))
+          .toList();
+      expect(discoverCalls, isNotEmpty);
+
+      final expectedBoost = kGenreBoostKeywords['Horror']!;
+      for (final c in discoverCalls) {
+        final raw = c.queryParameters['with_keywords'];
+        expect(raw, isNotNull,
+            reason:
+                'Horror selection must inject boost keywords into discover');
+        final ids = raw!.split('|').map(int.parse).toSet();
+        expect(ids, equals(expectedBoost),
+            reason:
+                'all Horror boost keyword ids must reach TMDB unmodified');
       }
     });
   });

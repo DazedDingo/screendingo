@@ -282,9 +282,17 @@ class RecommendationsService {
       // OR-union across all selected sub-topics: pipe-joined in tmdb_service
       // (gotcha 43c), then the client-side AND filter (gotcha 43b) narrows
       // back down to the true intersection.
+      //
+      // Genre-boost keywords cover the case where a selected genre has no
+      // TMDB TV equivalent (Horror is the most acute — see
+      // kGenreBoostKeywords doc). Boost ids OR-union with sub-topic ids in
+      // one with_keywords list; client-side filter still enforces the
+      // selected genre AND any selected sub-topics.
       final keywordIds = <int>{
         for (final tag in subgenreFilters)
           ...?kSubgenreToKeywordIds[tag],
+        for (final genre in genreFilters)
+          ...?kGenreBoostKeywords[genre],
       }.toList();
       final discoverResults = await Future.wait([
         if (fetchMovies)

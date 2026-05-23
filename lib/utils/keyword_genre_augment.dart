@@ -31,14 +31,19 @@
 ///
 /// Single version covers both axes — the same `/keywords` fetch feeds both
 /// maps, so one stamp per doc keeps the backfill walk simple.
-const int kKeywordsVersion = 3;
+///
+/// v4 (2026-05-23): expanded sub-genre map from ~16 to ~70 tags across all
+/// major canonical genres, added [kSubgenreParents] for contextual
+/// visibility, fixed pre-generator anime keyword id (10084 was "rescue";
+/// real anime id is 210024).
+const int kKeywordsVersion = 4;
 
 const Map<int, Set<String>> kKeywordToExtraGenres = <int, Set<String>>{
   // ---- seed entries (pre-generator, kept for sanity / back-compat) ----
   9951: {'Science Fiction'}, // alien
   4458: {'Science Fiction'}, // post-apocalyptic future
   4565: {'Science Fiction'}, // dystopia
-  10084: {'Animation'}, // anime
+  210024: {'Animation'}, // anime (verified id; old 10084 was "rescue")
   9715: {'Action'}, // superhero
   // 1721 "fight" — intentionally NOT here; too broad, would over-tag dramas.
 
@@ -74,6 +79,17 @@ const Map<int, Set<String>> kKeywordToExtraGenres = <int, Set<String>>{
   780: {'Action'}, // kung fu
   // Musical.
   4344: {'Music'}, // musical
+  // Horror TV-pickup keywords — TMDB has no TV Horror genre id, so when
+  // these keywords get pulled into the pool via kGenreBoostKeywords['Horror']
+  // the augmenter has to STAMP "Horror" on the resulting rec docs or the
+  // client-side AND filter will drop them. Without this, picking just
+  // Horror surfaces ~7 movies and zero TV (the v0.10.3 sparse-Horror fix).
+  6152: {'Horror'}, // supernatural
+  33505: {'Horror'}, // gothic
+  2626: {'Horror'}, // exorcism
+  161261: {'Horror'}, // demonic possession
+  616: {'Horror'}, // witch (kept conservative — 616 is the "witch" tag, not generic occult)
+  40931: {'Horror'}, // witchcraft
 };
 
 /// Returns a genre list combining [currentGenres] with any extras implied
@@ -121,46 +137,270 @@ List<String> augmentGenresWithKeywords(
 /// the same `wildlife` string, so any one of them widens the title's tag
 /// set. Tags do NOT need to match canonical genre names.
 ///
-/// Keys verified against TMDB `/search/keyword` on 2026-04-28; see
-/// `scripts/generate_keyword_genre_map.py` for the lookup pattern. Drop
-/// any tag whose keyword ids you can't verify — don't ship a sub-genre
-/// that maps to keywords TMDB doesn't actually use.
+/// Keys verified against TMDB `/search/keyword` on 2026-05-23; regenerate
+/// via `scripts/generate_keyword_subgenre_map.py` when adding new tags.
+/// Drop any tag whose keyword ids you can't verify — don't ship a
+/// sub-genre that maps to keywords TMDB doesn't actually use.
 const Map<int, Set<String>> kKeywordToSubgenres = <int, Set<String>>{
-  // ── wildlife (the animal-documentaries case) ──
-  9902: {'wildlife'}, // wildlife
-  18330: {'wildlife'}, // nature
-  18165: {'wildlife'}, // animals
-  361118: {'wildlife'}, // animal
-  221355: {'wildlife'}, // nature documentary
-  324404: {'wildlife'}, // wildlife documentary
-  // ── true crime ──
-  33722: {'true_crime'}, // true crime
-  // ── music documentaries ──
-  246377: {'music_doc'}, // music documentary
-  156205: {'music_doc'}, // concert film
-  33899: {'music_doc'}, // rockumentary
-  // ── history documentaries ──
-  321490: {'history_doc'}, // historical documentary
-  // ── science + tech ──
-  287067: {'science_tech'}, // science
-  1576: {'science_tech'}, // technology
-  191132: {'science_tech'}, // space exploration
-  325892: {'science_tech'}, // science documentary
-  // ── sport documentaries ──
-  159290: {'sport_doc'}, // sports documentary
-  // ── horror flavours (reuse the verified genre-augment ids) ──
-  12339: {'slasher'}, // slasher
-  163053: {'found_footage'}, // found footage
-  295907: {'psychological_horror'}, // psychological horror
-  215959: {'cosmic_horror'}, // cosmic horror
-  3133: {'vampire'}, // vampire
-  12377: {'zombie'}, // zombie
-  // ── sci-fi flavours ──
-  12190: {'cyberpunk'}, // cyberpunk
-  161176: {'space_opera'}, // space opera
-  161791: {'kaiju'}, // kaiju
-  // ── crime flavours ──
-  10051: {'heist'}, // heist
+  // ── wildlife (Animal docs) ──
+  9902: {'wildlife'},
+  18165: {'wildlife'},
+  18330: {'wildlife'},
+  221355: {'wildlife'},
+  324404: {'wildlife'},
+  361118: {'wildlife'},
+  // ── true_crime (True crime) ──
+  33722: {'true_crime'},
+  // ── music_doc (Music docs) ──
+  33899: {'music_doc'},
+  156205: {'music_doc'},
+  246377: {'music_doc'},
+  // ── history_doc (History docs) ──
+  321490: {'history_doc'},
+  // ── science_tech (Science & tech) ──
+  1576: {'science_tech'},
+  191132: {'science_tech'},
+  287067: {'science_tech'},
+  325892: {'science_tech'},
+  // ── sport_doc (Sports docs) ──
+  159290: {'sport_doc'},
+  // ── food_doc (Food & cooking) ──
+  1918: {'food_doc'},
+  10637: {'food_doc'},
+  18293: {'food_doc'},
+  368072: {'food_doc'},
+  // ── travel_doc (Travel docs) ──
+  9935: {'travel_doc'},
+  // ── political_doc (Political docs) ──
+  6078: {'political_doc'},
+  264792: {'political_doc'},
+  // ── environmental_doc (Climate & nature) ──
+  2210: {'environmental_doc'},
+  33577: {'environmental_doc'},
+  156388: {'environmental_doc'},
+  // ── slasher (Slasher) ──
+  12339: {'slasher'},
+  // ── found_footage (Found footage) ──
+  163053: {'found_footage'},
+  // ── psychological_horror (Psychological horror) ──
+  295907: {'psychological_horror'},
+  // ── cosmic_horror (Cosmic horror) ──
+  215959: {'cosmic_horror'},
+  // ── vampire (Vampire) ──
+  3133: {'vampire'},
+  // ── zombie (Zombie) ──
+  12377: {'zombie'},
+  // ── body_horror (Body horror) ──
+  283085: {'body_horror'},
+  // ── supernatural (Supernatural) ──
+  6152: {'supernatural'},
+  // ── gothic (Gothic) ──
+  33505: {'gothic'},
+  // ── monster (Monster) ──
+  1299: {'monster'},
+  // ── demonic (Demonic / possession) ──
+  2626: {'demonic'},
+  161261: {'demonic'},
+  // ── witchcraft (Witchcraft / occult) ──
+  616: {'witchcraft'},
+  40931: {'witchcraft'},
+  156174: {'witchcraft'},
+  // ── cyberpunk (Cyberpunk) ──
+  12190: {'cyberpunk'},
+  // ── space_opera (Space opera) ──
+  161176: {'space_opera'},
+  // ── kaiju (Kaiju) ──
+  161791: {'kaiju'},
+  // ── time_travel (Time travel) ──
+  4379: {'time_travel'},
+  // ── dystopia (Dystopia) ──
+  4565: {'dystopia'},
+  // ── post_apocalyptic (Post-apocalyptic) ──
+  4458: {'post_apocalyptic'},
+  // ── alien_invasion (Alien invasion) ──
+  14909: {'alien_invasion'},
+  // ── artificial_intelligence (AI / robots) ──
+  14544: {'artificial_intelligence'},
+  371846: {'artificial_intelligence'},
+  // ── virtual_reality (Virtual reality) ──
+  4563: {'virtual_reality'},
+  // ── heist (Heist) ──
+  10051: {'heist'},
+  // ── mafia (Mafia / mob) ──
+  10391: {'mafia'},
+  231149: {'mafia'},
+  // ── detective (Detective / noir) ──
+  703: {'detective'},
+  155790: {'detective'},
+  207268: {'detective'},
+  // ── gangster (Gangster) ──
+  3149: {'gangster'},
+  // ── drug_trade (Drug trade / cartel) ──
+  2149: {'drug_trade'},
+  10175: {'drug_trade'},
+  // ── prison (Prison) ──
+  378: {'prison'},
+  // ── serial_killer (Serial killer) ──
+  10714: {'serial_killer'},
+  // ── undercover (Undercover) ──
+  1568: {'undercover'},
+  // ── hitman (Hitman / assassin) ──
+  782: {'hitman'},
+  2708: {'hitman'},
+  // ── martial_arts (Martial arts) ──
+  779: {'martial_arts'},
+  780: {'martial_arts'},
+  // ── spy (Spy / espionage) ──
+  470: {'spy'},
+  5265: {'spy'},
+  // ── military (Military) ──
+  162365: {'military'},
+  // ── superhero (Superhero) ──
+  9715: {'superhero'},
+  // ── dark_comedy (Dark comedy) ──
+  10123: {'dark_comedy'},
+  373401: {'dark_comedy'},
+  // ── romcom (Romantic comedy) ──
+  375047: {'romcom'},
+  // ── satire (Satire) ──
+  8201: {'satire'},
+  // ── mockumentary (Mockumentary) ──
+  11800: {'mockumentary'},
+  // ── slapstick (Slapstick) ──
+  364753: {'slapstick'},
+  // ── courtroom (Courtroom / legal) ──
+  33519: {'courtroom'},
+  214780: {'courtroom'},
+  // ── coming_of_age (Coming of age) ──
+  10683: {'coming_of_age'},
+  // ── period_drama (Period drama) ──
+  15060: {'period_drama'},
+  // ── biopic (Biopic) ──
+  5565: {'biopic'},
+  360939: {'biopic'},
+  // ── high_fantasy (High fantasy) ──
+  211227: {'high_fantasy'},
+  // ── dark_fantasy (Dark fantasy) ──
+  177895: {'dark_fantasy'},
+  // ── fairy_tale (Fairy tale) ──
+  3205: {'fairy_tale'},
+  // ── psychological_thriller (Psychological thriller) ──
+  12565: {'psychological_thriller'},
+  // ── political_thriller (Political thriller) ──
+  209817: {'political_thriller'},
+  // ── conspiracy (Conspiracy) ──
+  10410: {'conspiracy'},
+  // ── neo_western (Neo-western) ──
+  168713: {'neo_western'},
+  // ── spaghetti_western (Spaghetti western) ──
+  156212: {'spaghetti_western'},
+  // ── wwii (WWII) ──
+  1956: {'wwii'},
+  // ── vietnam_war (Vietnam war) ──
+  2957: {'vietnam_war'},
+  // ── whodunit (Whodunit) ──
+  12570: {'whodunit'},
+  // ── treasure_hunt (Treasure hunt) ──
+  6956: {'treasure_hunt'},
+  // ── exploration (Exploration) ──
+  4759: {'exploration'},
+  // ── musical (Musical) ──
+  4344: {'musical'},
+  // ── anime (Anime) ──
+  210024: {'anime'},
+  // ── stop_motion (Stop motion) ──
+  10121: {'stop_motion'},
+  // ── ancient_history (Ancient history) ──
+  5049: {'ancient_history'},
+  157894: {'ancient_history'},
+  162861: {'ancient_history'},
+  // ── medieval (Medieval) ──
+  161257: {'medieval'},
+};
+
+/// Parent canonical genre(s) each sub-genre is a narrowing of. Used by
+/// the Home filter panel to render contextual chip lists: a sub-topic
+/// chip is shown only when at least one of its parents is in the user's
+/// selected Genre set (or the sub-topic is already selected, so the user
+/// can deselect it). Picking "Animal docs" without Documentary selected
+/// is incoherent — Animal docs is a narrowing of Documentary, not a
+/// parallel filter.
+///
+/// Parent matching is synonym-aware via [genreMatches] in tmdb_genres.dart
+/// — declaring `'cyberpunk': {'Science Fiction'}` covers the TV variant
+/// `'Sci-Fi & Fantasy'` automatically. Don't double-list synonyms here.
+const Map<String, Set<String>> kSubgenreParents = <String, Set<String>>{
+  'wildlife': {'Documentary'},
+  'true_crime': {'Documentary', 'Crime'},
+  'music_doc': {'Documentary', 'Music'},
+  'history_doc': {'Documentary', 'History'},
+  'science_tech': {'Documentary'},
+  'sport_doc': {'Documentary'},
+  'food_doc': {'Documentary'},
+  'travel_doc': {'Documentary'},
+  'political_doc': {'Documentary'},
+  'environmental_doc': {'Documentary'},
+  'slasher': {'Horror'},
+  'found_footage': {'Horror'},
+  'psychological_horror': {'Horror'},
+  'cosmic_horror': {'Horror'},
+  'vampire': {'Horror'},
+  'zombie': {'Horror'},
+  'body_horror': {'Horror'},
+  'supernatural': {'Horror'},
+  'gothic': {'Horror'},
+  'monster': {'Horror'},
+  'demonic': {'Horror'},
+  'witchcraft': {'Horror'},
+  'cyberpunk': {'Science Fiction'},
+  'space_opera': {'Science Fiction'},
+  'kaiju': {'Science Fiction'},
+  'time_travel': {'Science Fiction'},
+  'dystopia': {'Science Fiction'},
+  'post_apocalyptic': {'Science Fiction'},
+  'alien_invasion': {'Science Fiction'},
+  'artificial_intelligence': {'Science Fiction'},
+  'virtual_reality': {'Science Fiction'},
+  'heist': {'Crime'},
+  'mafia': {'Crime'},
+  'detective': {'Crime', 'Mystery'},
+  'gangster': {'Crime'},
+  'drug_trade': {'Crime'},
+  'prison': {'Crime'},
+  'serial_killer': {'Crime', 'Thriller'},
+  'undercover': {'Crime'},
+  'hitman': {'Crime', 'Action'},
+  'martial_arts': {'Action'},
+  'spy': {'Action', 'Thriller'},
+  'military': {'Action', 'War'},
+  'superhero': {'Action'},
+  'dark_comedy': {'Comedy'},
+  'romcom': {'Comedy', 'Romance'},
+  'satire': {'Comedy'},
+  'mockumentary': {'Comedy'},
+  'slapstick': {'Comedy'},
+  'courtroom': {'Drama'},
+  'coming_of_age': {'Drama'},
+  'period_drama': {'Drama'},
+  'biopic': {'Drama'},
+  'high_fantasy': {'Fantasy'},
+  'dark_fantasy': {'Fantasy'},
+  'fairy_tale': {'Fantasy', 'Family'},
+  'psychological_thriller': {'Thriller'},
+  'political_thriller': {'Thriller'},
+  'conspiracy': {'Thriller'},
+  'neo_western': {'Western'},
+  'spaghetti_western': {'Western'},
+  'wwii': {'War'},
+  'vietnam_war': {'War'},
+  'whodunit': {'Mystery'},
+  'treasure_hunt': {'Adventure'},
+  'exploration': {'Adventure'},
+  'musical': {'Music'},
+  'anime': {'Animation'},
+  'stop_motion': {'Animation'},
+  'ancient_history': {'History'},
+  'medieval': {'History'},
 };
 
 /// Returns a sub-genre set combining [currentSubgenres] with any tags
@@ -214,16 +454,71 @@ String subgenreLabel(String tag) => switch (tag) {
       'history_doc' => 'History docs',
       'science_tech' => 'Science & tech',
       'sport_doc' => 'Sports docs',
-      'slasher' => 'Slasher horror',
+      'food_doc' => 'Food & cooking',
+      'travel_doc' => 'Travel docs',
+      'political_doc' => 'Political docs',
+      'environmental_doc' => 'Climate & nature',
+      'slasher' => 'Slasher',
       'found_footage' => 'Found footage',
       'psychological_horror' => 'Psychological horror',
       'cosmic_horror' => 'Cosmic horror',
       'vampire' => 'Vampire',
       'zombie' => 'Zombie',
+      'body_horror' => 'Body horror',
+      'supernatural' => 'Supernatural',
+      'gothic' => 'Gothic',
+      'monster' => 'Monster',
+      'demonic' => 'Demonic / possession',
+      'witchcraft' => 'Witchcraft / occult',
       'cyberpunk' => 'Cyberpunk',
       'space_opera' => 'Space opera',
       'kaiju' => 'Kaiju',
+      'time_travel' => 'Time travel',
+      'dystopia' => 'Dystopia',
+      'post_apocalyptic' => 'Post-apocalyptic',
+      'alien_invasion' => 'Alien invasion',
+      'artificial_intelligence' => 'AI / robots',
+      'virtual_reality' => 'Virtual reality',
       'heist' => 'Heist',
+      'mafia' => 'Mafia / mob',
+      'detective' => 'Detective / noir',
+      'gangster' => 'Gangster',
+      'drug_trade' => 'Drug trade / cartel',
+      'prison' => 'Prison',
+      'serial_killer' => 'Serial killer',
+      'undercover' => 'Undercover',
+      'hitman' => 'Hitman / assassin',
+      'martial_arts' => 'Martial arts',
+      'spy' => 'Spy / espionage',
+      'military' => 'Military',
+      'superhero' => 'Superhero',
+      'dark_comedy' => 'Dark comedy',
+      'romcom' => 'Romantic comedy',
+      'satire' => 'Satire',
+      'mockumentary' => 'Mockumentary',
+      'slapstick' => 'Slapstick',
+      'courtroom' => 'Courtroom / legal',
+      'coming_of_age' => 'Coming of age',
+      'period_drama' => 'Period drama',
+      'biopic' => 'Biopic',
+      'high_fantasy' => 'High fantasy',
+      'dark_fantasy' => 'Dark fantasy',
+      'fairy_tale' => 'Fairy tale',
+      'psychological_thriller' => 'Psychological thriller',
+      'political_thriller' => 'Political thriller',
+      'conspiracy' => 'Conspiracy',
+      'neo_western' => 'Neo-western',
+      'spaghetti_western' => 'Spaghetti western',
+      'wwii' => 'WWII',
+      'vietnam_war' => 'Vietnam war',
+      'whodunit' => 'Whodunit',
+      'treasure_hunt' => 'Treasure hunt',
+      'exploration' => 'Exploration',
+      'musical' => 'Musical',
+      'anime' => 'Anime',
+      'stop_motion' => 'Stop motion',
+      'ancient_history' => 'Ancient history',
+      'medieval' => 'Medieval',
       _ => tag
           .split('_')
           .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
@@ -231,7 +526,9 @@ String subgenreLabel(String tag) => switch (tag) {
     };
 
 /// The full set of known sub-genre tags, alphabetised by display label.
-/// Source of truth for the Home filter panel's Sub-topics chip grid.
+/// Source of truth for tests; the Home filter panel renders a CONTEXTUAL
+/// subset via [visibleSubgenresFor] driven by the user's selected Genre
+/// set.
 List<String> get kAllSubgenres {
   final set = <String>{};
   for (final tags in kKeywordToSubgenres.values) {
@@ -257,3 +554,46 @@ Map<String, Set<int>> get kSubgenreToKeywordIds {
   });
   return Map.unmodifiable(out);
 }
+
+/// Genres whose TV taxonomy is incomplete — augmenting the discover query
+/// with these signature keywords pulls TV titles INTO the pool that would
+/// otherwise be missed.
+///
+/// **Horror**: TMDB has no Horror genre id for TV (`/genre/tv/list` returns
+/// nothing equivalent), so a refresh with just `Horror` selected fires
+/// `with_genres=27` on the movie side and `with_genres=` (empty!) on the
+/// TV side — TV horror shows like "The Haunting of Hill House" live as
+/// `Drama` + `Sci-Fi & Fantasy` on TMDB and don't surface at all. Piping
+/// the canonical horror keyword ids (slasher, vampire, zombie, cosmic
+/// horror, supernatural, gothic, exorcism, witchcraft, …) into
+/// `with_keywords` brings them into the pool; the existing keyword→genre
+/// augmentation (gotcha 43) then stamps `Horror` on those rec docs so the
+/// client-side AND filter passes them through. Without the boost, picking
+/// just "Horror" returns ~7 movies and zero TV.
+///
+/// **Music**: same problem (no TV Music genre); skipped for now because
+/// the user hasn't asked for it — add when it becomes a problem.
+///
+/// Composes with [kSubgenreToKeywordIds] via simple set union when both
+/// genres and sub-topics are selected. No ordering required — TMDB
+/// `with_keywords` is OR-semantics regardless of position.
+const Map<String, Set<int>> kGenreBoostKeywords = <String, Set<int>>{
+  'Horror': {
+    // Mirror the horror sub-topic keyword ids so the discover pool catches
+    // every TV horror flavour. Most of these also augment `genres` →
+    // `{'Horror'}` via kKeywordToExtraGenres so the client-side filter
+    // accepts the title after augmentation.
+    12339, // slasher
+    163053, // found footage
+    295907, // psychological horror
+    215959, // cosmic horror
+    3133, // vampire
+    12377, // zombie
+    283085, // body horror
+    6152, // supernatural
+    33505, // gothic
+    2626, // exorcism
+    161261, // demonic possession
+    40931, // witchcraft
+  },
+};
