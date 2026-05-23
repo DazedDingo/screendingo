@@ -74,6 +74,18 @@ class _LikeTheseSheetState extends ConsumerState<LikeTheseSheet> {
   List<TitleSuggestion> _resultTitles = const [];
   String? _error;
 
+  // "Show more" accumulator. Every time the user taps Show more we add the
+  // current batch's keys here AND pass them into the next prompt as an
+  // explicit exclusion list, so the LLM doesn't keep suggesting the same
+  // 6 titles. Reset by [_reset]. Lives only for the sheet session — we
+  // intentionally don't persist it; reopening "More like these" is a fresh
+  // search where the user is allowed to see those titles again.
+  final Set<String> _seenKeys = {};
+  final List<String> _seenLabels = []; // "Title (year)" form for the prompt
+  // True when the current submit is appending to existing results rather
+  // than replacing — drives the button label + spinner placement.
+  bool _showingMore = false;
+
   @override
   void dispose() {
     _searchDebounce?.cancel();
@@ -142,7 +154,11 @@ class _LikeTheseSheetState extends ConsumerState<LikeTheseSheet> {
     setState(() => _seeds.removeWhere((x) => x.key == s.key));
   }
 
-  Future<void> _submit() async {
+  /// Fires the concierge call. [more]=true appends a fresh batch onto the
+  /// existing results AND passes the accumulated seen-titles set as an
+  /// explicit exclusion list so the LLM doesn't loop. [more]=false is the
+  /// initial submit (replaces any prior results, clears the accumulator).
+  Future<void> _submit({bool more = false}) async {
     if (_seeds.length < 2 || _submitting) return;
     final householdId = ref.read(householdIdProvider).value;
     if (householdId == null) return;
@@ -150,23 +166,38 @@ class _LikeTheseSheetState extends ConsumerState<LikeTheseSheet> {
 
     setState(() {
       _submitting = true;
+      _showingMore = more;
       _error = null;
     });
 
     final list = _seeds.map((s) => s.promptLabel).join(', ');
     // Intentionally explicit: "like the group as a whole" avoids a
-    // weighted-average feel where Claude just leans on the most recent seed.
-    final prompt =
+    // weighted-average feel where the LLM just leans on the most recent seed.
+    final base =
         'Suggest 6 titles (movies or TV shows) that capture what someone who '
         "loves this group as a whole — not each title individually — would "
         'enjoy next. Seeds: $list. '
         "Don't include the seeds themselves or things they've already watched.";
+    // On a "Show more" call, append an exclusion list. We deliberately keep
+    // the session id fresh per call (no Gemini chat continuation) so the
+    // exclusion has to ride the prompt — Gemini can't otherwise "remember"
+    // what it already suggested. Capped to the most recent 40 to keep the
+    // prompt size sane after many taps; 40 is comfortably past the 6-per-
+    // batch wave the user is realistically scrolling through.
+    final excludeLabels = _seenLabels.length > 40
+        ? _seenLabels.sublist(_seenLabels.length - 40)
+        : _seenLabels;
+    final prompt = more && excludeLabels.isNotEmpty
+        ? '$base Also don\'t suggest any of these (already shown this '
+            'session): ${excludeLabels.join(', ')}.'
+        : base;
 
     try {
       final result = await ref.read(conciergeServiceProvider).chat(
             householdId: householdId,
             message: prompt,
-            // Fresh session — this is a one-shot, not a chat follow-up.
+            // Fresh session per call — this isn't a chat follow-up;
+            // exclusion semantics live entirely in the prompt above.
             sessionId: 'like-these-${DateTime.now().millisecondsSinceEpoch}',
             mode: mode == ViewMode.solo ? 'solo' : 'together',
             history: const [],
@@ -174,16 +205,41 @@ class _LikeTheseSheetState extends ConsumerState<LikeTheseSheet> {
       if (!mounted) return;
       final includeWatched = ref.read(includeWatchedProvider);
       final watchedKeys = ref.read(watchedKeysProvider);
-      final titles = includeWatched
-          ? result.titles
-          : result.titles
-              .where((t) =>
-                  !watchedKeys.contains('${t.mediaType}:${t.tmdbId}'))
-              .toList();
+      // Filter the raw response by: (a) already-seen (LLM ignores the
+      // exclusion list ~10% of the time even with the prompt), (b) the
+      // user's includeWatched preference, (c) the seed list itself
+      // (belt-and-braces; the prompt already says "don't include seeds").
+      final seedKeys = _seeds.map((s) => s.key).toSet();
+      final fresh = <TitleSuggestion>[];
+      for (final t in result.titles) {
+        final key = '${t.mediaType}:${t.tmdbId}';
+        if (_seenKeys.contains(key)) continue;
+        if (seedKeys.contains(key)) continue;
+        if (!includeWatched && watchedKeys.contains(key)) continue;
+        fresh.add(t);
+      }
       setState(() {
-        _resultText = result.text;
-        _resultTitles = titles;
+        if (more) {
+          // Append onto the existing list.
+          _resultTitles = [..._resultTitles, ...fresh];
+          // _resultText stays as the original intro paragraph — Gemini
+          // doesn't write a meaningful intro on follow-up calls and
+          // overwriting it would discard useful context.
+        } else {
+          _resultText = result.text;
+          _resultTitles = fresh;
+          _seenKeys.clear();
+          _seenLabels.clear();
+        }
+        for (final t in fresh) {
+          if (_seenKeys.add('${t.mediaType}:${t.tmdbId}')) {
+            _seenLabels.add(t.year != null
+                ? '${t.title} (${t.year})'
+                : t.title);
+          }
+        }
         _submitting = false;
+        _showingMore = false;
       });
     } catch (e) {
       if (!mounted) return;
@@ -195,6 +251,7 @@ class _LikeTheseSheetState extends ConsumerState<LikeTheseSheet> {
       setState(() {
         _error = reason;
         _submitting = false;
+        _showingMore = false;
       });
     }
   }
@@ -204,6 +261,8 @@ class _LikeTheseSheetState extends ConsumerState<LikeTheseSheet> {
       _resultText = null;
       _resultTitles = const [];
       _error = null;
+      _seenKeys.clear();
+      _seenLabels.clear();
     });
   }
 
@@ -397,6 +456,27 @@ class _LikeTheseSheetState extends ConsumerState<LikeTheseSheet> {
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
           ),
+        if (_resultTitles.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: _submitting && _showingMore
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh, size: 18),
+              label: Text(
+                _submitting && _showingMore
+                    ? 'Finding more…'
+                    : 'Show more (${_resultTitles.length} shown)',
+              ),
+              onPressed: _submitting ? null : () => _submit(more: true),
+            ),
+          ),
+        ],
         const SizedBox(height: 24),
       ],
     );
