@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("com.google.gms.google-services")
@@ -57,7 +59,7 @@ android {
         }
         if (usePlaySigning) {
             create("upload") {
-                val keyProps = java.util.Properties()
+                val keyProps = Properties()
                 val keyPropsFile = rootProject.file("key.properties")
                 if (!keyPropsFile.exists()) {
                     throw GradleException(
@@ -66,10 +68,14 @@ android {
                     )
                 }
                 keyPropsFile.inputStream().use { keyProps.load(it) }
-                storeFile = rootProject.file(keyProps["storeFile"] as String)
-                storePassword = keyProps["storePassword"] as String
-                keyAlias = keyProps["keyAlias"] as String
-                keyPassword = keyProps["keyPassword"] as String
+                // getProperty() returns String? — non-null assertion is safe
+                // here because the AAB workflow writes all four keys before
+                // the build step; a missing key is a CI config bug, not a
+                // runtime case to handle gracefully.
+                storeFile = rootProject.file(keyProps.getProperty("storeFile")!!)
+                storePassword = keyProps.getProperty("storePassword")!!
+                keyAlias = keyProps.getProperty("keyAlias")!!
+                keyPassword = keyProps.getProperty("keyPassword")!!
             }
         }
     }
