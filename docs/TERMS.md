@@ -1,8 +1,8 @@
-# WatchNext — Terms of Service
+# ScreenNext — Terms of Service
 
 _Last updated: 2026-05-24_
 
-By installing or using the WatchNext Android app ("the App"), you agree
+By installing or using the ScreenNext Android app ("the App"), you agree
 to these terms. If you don't agree, please uninstall the App.
 
 These terms form a binding agreement between you and **Zachary Birney**
@@ -10,7 +10,7 @@ These terms form a binding agreement between you and **Zachary Birney**
 
 ## 1. The App
 
-WatchNext is a personal-use movie and TV recommendation app for
+ScreenNext is a personal-use movie and TV recommendation app for
 two-person households. It integrates with third-party services
 (Firebase, TMDB, Trakt, Gemini, OMDb, Reddit) — your use of those
 services is governed by their own terms.

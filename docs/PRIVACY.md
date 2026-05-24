@@ -1,8 +1,8 @@
-# WatchNext — Privacy Policy
+# ScreenNext — Privacy Policy
 
 _Last updated: 2026-05-24_
 
-This document describes how the WatchNext Android app handles personal
+This document describes how the ScreenNext Android app handles personal
 information. It applies to the version distributed via Google Play and
 the sideload APKs available from this repository's GitHub Releases.
 
@@ -18,7 +18,7 @@ policy and EU/UK GDPR Article 13.)
 - We do not sell your data, and we do not run third-party advertising or
   analytics SDKs.
 - Linking your Trakt account is optional; if you do, watch + rating data
-  flows between WatchNext and Trakt as you'd expect.
+  flows between ScreenNext and Trakt as you'd expect.
 - You can delete your account and all associated data at any time from
   the in-app Profile screen.
 
@@ -65,7 +65,7 @@ operate under their own privacy policies, linked above.
     household; if you're the last member, deletes the household)
   - Revoke Trakt linking (deletes the stored Trakt refresh token)
 - To delete your entire account and all associated data, email
-  **zachbirney@gmail.com** with the subject "WatchNext deletion request"
+  **zachbirney@gmail.com** with the subject "ScreenNext deletion request"
   from the email address linked to your account; data is purged within
   30 days.
 

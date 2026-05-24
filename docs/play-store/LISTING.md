@@ -1,4 +1,4 @@
-# WatchNext — Play Store listing copy
+# ScreenNext — Play Store listing copy
 
 Draft of every text field you'll paste into Play Console's "Main store
 listing" + "Data safety" + "Content rating" forms. Edit to taste before
@@ -10,12 +10,12 @@ the codebase and should be accurate as of v0.10.7.
 ## App title (30 chars max)
 
 ```
-WatchNext: Couples Movie Picks
+ScreenNext: Couples Movie Picks
 ```
 
 Alt options:
-- `WatchNext — Movies for Two` (26)
-- `WatchNext: Pair Watch Picks` (27)
+- `ScreenNext — Movies for Two` (26)
+- `ScreenNext: Pair Watch Picks` (27)
 
 ## Short description (80 chars max)
 
@@ -30,7 +30,7 @@ Alt:
 ## Full description (4000 chars max)
 
 ```
-WatchNext is a movie + TV recommendation app built specifically for
+ScreenNext is a movie + TV recommendation app built specifically for
 two-person households. Sign in, pair with your partner, rate a few
 titles, and start getting picks that reflect what BOTH of you would
 actually enjoy — not just what one of you likes and the other tolerates.
@@ -69,7 +69,7 @@ actually enjoy — not just what one of you likes and the other tolerates.
 • Trakt sync (optional) — link your Trakt account to sync watch
   history and ratings across services.
 
-• Stremio addon — install the WatchNext catalog inside Stremio to
+• Stremio addon — install the ScreenNext catalog inside Stremio to
   surface your shared watchlist directly in your streaming app.
 
 • Home-screen widget — "Up Next" tile shows the three closest-to-air
@@ -80,7 +80,7 @@ actually enjoy — not just what one of you likes and the other tolerates.
 
 — PRIVATE AND COUPLE-SCALED BY DESIGN —
 
-WatchNext was built for two people, not millions. There's no social
+ScreenNext was built for two people, not millions. There's no social
 feed, no friend graph, no "trending in your city". Every Firestore
 collection is scoped to your household — your partner is the only
 other person who can see your ratings.
@@ -91,7 +91,7 @@ the in-app Profile screen.
 
 — BUILT BY DAZEDDINGO —
 
-WatchNext is a personal project, built and maintained by Zachary
+ScreenNext is a personal project, built and maintained by Zachary
 Birney (trading as DazedDingo). Source code, release notes, and the
 issue tracker are public at
 github.com/DazedDingo/watchnext. Privacy policy and terms are
@@ -234,7 +234,7 @@ Optional 6-8:
 
 ## Feature graphic
 
-1024 × 500. Recommend the "Watch**Next**" wordmark (gradient sweep on
+1024 × 500. Recommend the "Screen**Next**" wordmark (gradient sweep on
 "Next") centred on a dark background, with a 2x4 grid of stylised
 poster outlines fading into the background. No screenshot — Play
 penalises feature graphics that duplicate screenshot content.
@@ -282,7 +282,7 @@ they'd earn.
 - [ ] Terms of service hosted at a public URL
 - [ ] App Check enabled + enforcement on shipped Cloud Functions
 - [ ] Cloud Billing alerts configured ($1, $5, $20)
-- [ ] Trademark search done for "WatchNext" + "DazedDingo"
+- [ ] Trademark search done for "ScreenNext" + "DazedDingo"
 - [ ] Developer account verified (legal name + government ID on file
       with Google)
 - [ ] 20 testers identified for the closed-test window

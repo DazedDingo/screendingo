@@ -9,7 +9,7 @@ import '../../providers/onboarding_provider.dart';
 import '../../providers/ratings_provider.dart';
 import '../../services/tmdb_service.dart';
 import '../../utils/onboarding_seeds.dart';
-import '../../widgets/watchnext_logo.dart';
+import '../../widgets/screennext_logo.dart';
 
 /// First-run onboarding: a poster grid of curated titles. Tap a poster
 /// to rate it 1–5 (or skip). The "Done" button flips the local prefs
@@ -85,7 +85,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const WatchNextLogo(),
+        title: const ScreenNextLogo(),
         centerTitle: false,
         actions: [
           TextButton(

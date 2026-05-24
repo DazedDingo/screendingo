@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "description": "WatchNext Cloud Functions",
+  "description": "ScreenNext Cloud Functions",
   "engines": {
     "node": "22"
   },

@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="WatchNext"
+        android:label="ScreenNext"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -42,7 +42,7 @@
                  launches the app the runtime is identical regardless of icon. -->
             <!-- Share-to-Save (Phase 4). Accept plain text / URLs from the
                  Android share sheet so users can forward IMDb, Letterboxd,
-                 TMDB, and generic links into WatchNext. -->
+                 TMDB, and generic links into ScreenNext. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
                 <category android:name="android.intent.category.DEFAULT"/>
@@ -73,7 +73,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher"
-            android:label="WatchNext"
+            android:label="ScreenNext"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -86,7 +86,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_vivid"
             android:roundIcon="@mipmap/ic_launcher_vivid"
-            android:label="WatchNext"
+            android:label="ScreenNext"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -99,7 +99,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_minimal"
             android:roundIcon="@mipmap/ic_launcher_minimal"
-            android:label="WatchNext"
+            android:label="ScreenNext"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -112,7 +112,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_clapper"
             android:roundIcon="@mipmap/ic_launcher_clapper"
-            android:label="WatchNext"
+            android:label="ScreenNext"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -125,7 +125,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_cream"
             android:roundIcon="@mipmap/ic_launcher_cream"
-            android:label="WatchNext"
+            android:label="ScreenNext"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

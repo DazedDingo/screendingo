@@ -121,7 +121,7 @@ class HomeWidgetService {
   }
 
   /// Push the current Tonight's Pick. null clears all fields so the
-  /// AppWidgetProvider falls back to its empty state ("Open WatchNext to
+  /// AppWidgetProvider falls back to its empty state ("Open ScreenNext to
   /// refresh").
   static Future<void> pushTonightsPick(TonightsPick? pick) async {
     await _ensureAppGroup();

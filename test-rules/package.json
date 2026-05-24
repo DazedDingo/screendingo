@@ -1,7 +1,7 @@
 {
   "name": "watchnext-rules-tests",
   "version": "1.0.0",
-  "description": "Firestore security rules emulator tests for WatchNext",
+  "description": "Firestore security rules emulator tests for ScreenNext",
   "private": true,
   "type": "commonjs",
   "scripts": {

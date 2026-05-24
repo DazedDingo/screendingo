@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="128" alt="WatchNext app icon"/>
+  <img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="128" alt="ScreenNext app icon"/>
 </p>
 
-# WatchNext
+# ScreenNext
 
 **A shared movie & TV companion for two-person households.**
 Decide what to watch — *together* — with recommendations that learn from both partners' taste.
@@ -59,7 +59,7 @@ Each release comes with a short *What's new* so you always know what you're gett
 
 - Pick an **accent colour** from 18 named seeds — the whole app recolours instantly. Default is the Streaming red.
 - **Dark-only** Material 3 theme.
-- Animated *Watch**Next*** wordmark on the title bar, splash, and login.
+- Animated *Screen**Next*** wordmark on the title bar, splash, and login.
 
 ---
 
@@ -73,7 +73,7 @@ Every surface — recommendations, predictions, stats, watchlists — respects a
 
 - **Trakt** — per-user OAuth. One-time full sync pulls your entire watch history, then incremental syncs keep things current. Ratings push both ways.
 - **Stremio** — Profile → Stremio generates a private install URL that exposes your shared watchlist as a Stremio catalog.
-- **Android share sheet** — hit "Share" from IMDb, Letterboxd, Google, or any browser and WatchNext offers to save the title straight to your watchlist.
+- **Android share sheet** — hit "Share" from IMDb, Letterboxd, Google, or any browser and ScreenNext offers to save the title straight to your watchlist.
 
 ---
 
@@ -248,7 +248,7 @@ you can debug against a build that matches the Play release.
    alerts → $1 / $5 / $20). Catches runaway spend before it's a wallet
    event.
 
-5. **Trademark sanity-check "WatchNext"** on USPTO TESS / EUIPO eSearch
+5. **Trademark sanity-check "ScreenNext"** on USPTO TESS / EUIPO eSearch
    before publishing — generic name, confirm nobody's already filed in
    the entertainment-software class.
 

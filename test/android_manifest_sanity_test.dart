@@ -61,12 +61,12 @@ void main() {
   group('AndroidManifest — Share-to-Save', () {
     test('declares the SEND intent filter for text/plain', () {
       // receive_sharing_intent listens for ACTION_SEND with text/plain on
-      // MainActivity. Without this filter, WatchNext doesn't appear in the
+      // MainActivity. Without this filter, ScreenNext doesn't appear in the
       // Android share sheet for IMDb/Letterboxd/TMDB links and the whole
       // share-to-save flow is invisible to the user.
       final m = _manifest();
       expect(m.contains('android.intent.action.SEND'), isTrue,
-          reason: 'No SEND filter = WatchNext is missing from the share '
+          reason: 'No SEND filter = ScreenNext is missing from the share '
               'sheet, share-to-save is dead.');
       expect(m.contains('android:mimeType="text/plain"'), isTrue,
           reason: 'mimeType must be text/plain — that\'s what IMDb / '

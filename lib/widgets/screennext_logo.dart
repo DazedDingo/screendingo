@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 
-/// "Watch**Next**" wordmark. "Watch" is the on-surface color; "Next" renders
+/// "Screen**Next**" wordmark. "Screen" is the on-surface color; "Next" renders
 /// the current theme's primary accent with a continuous left-to-right light
 /// sweep — a chase-light flourish that reads as forward motion.
-class WatchNextLogo extends StatefulWidget {
-  const WatchNextLogo({
+///
+/// (Originally shipped as "WatchNext" through v0.10.x; renamed to
+/// ScreenNext in v0.11.0 after a preliminary trademark search found
+/// commercial-use conflicts in the entertainment-software category —
+/// see docs/trademark-search-2026-05-24.md. The gradient-sweep
+/// treatment on `Next` is intentional and load-bearing for the brand
+/// identity — preserve it on any future rebrand.)
+class ScreenNextLogo extends StatefulWidget {
+  const ScreenNextLogo({
     super.key,
     this.fontSize = 20,
     this.fontWeight = FontWeight.w700,
@@ -14,10 +21,10 @@ class WatchNextLogo extends StatefulWidget {
   final FontWeight fontWeight;
 
   @override
-  State<WatchNextLogo> createState() => _WatchNextLogoState();
+  State<ScreenNextLogo> createState() => _ScreenNextLogoState();
 }
 
-class _WatchNextLogoState extends State<WatchNextLogo>
+class _ScreenNextLogoState extends State<ScreenNextLogo>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
@@ -49,7 +56,7 @@ class _WatchNextLogoState extends State<WatchNextLogo>
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text('Watch', style: textStyle.copyWith(color: scheme.onSurface)),
+        Text('Screen', style: textStyle.copyWith(color: scheme.onSurface)),
         AnimatedBuilder(
           animation: _c,
           builder: (_, _) {

@@ -1,4 +1,4 @@
-WatchNext — Proprietary License
+ScreenNext — Proprietary License
 Copyright (c) 2026 Zachary Birney (trading as DazedDingo).
 All Rights Reserved.
 
@@ -19,7 +19,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Third-party assets and dependencies are subject to their own licenses,
 listed in the project's `pubspec.yaml` (Flutter packages) and
 `functions/package.json` (Node packages). This file governs only the
-WatchNext-authored source under this repository.
+ScreenNext-authored source under this repository.
 
 Author: Zachary Birney (DazedDingo)
 Contact: zachbirney@gmail.com
