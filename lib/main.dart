@@ -1,6 +1,10 @@
+import 'dart:developer' as developer;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -64,6 +68,41 @@ void main() async {
         ),
       );
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // App Check — attestation layer that proves a Cloud Function call is
+  // coming from the genuine, Play-installed ScreenDingo app (and not a
+  // reverse-engineered client, scraper, or scripted attacker). Initialised
+  // in monitoring mode currently — the Firebase console accepts tokens
+  // but Cloud Functions don't reject calls without them. Once we flip
+  // enforcement on the Gemini-spending CFs (concierge,
+  // scoreRecommendations, fetchExternalRatings) after Play launch + a
+  // day of monitoring logs, this becomes the hard gate that protects
+  // the metered third-party quotas from abuse.
+  //
+  // Debug provider for local + sideload builds so kDebugMode flows
+  // continue working without registering debug tokens — Play Integrity
+  // attestations only ever succeed on Play-installed apps, so any debug
+  // build using the production provider would fail attestation and be
+  // rejected once enforcement is on. The `kDebugMode` flag flips this
+  // to the debug provider in dev; release builds use Play Integrity.
+  //
+  // Wrapped in try/catch because App Check initialisation throws on
+  // certain test runners + on a device that's lost Play Services. We
+  // never want the app to fail to start because of a security-layer
+  // hiccup — losing attestation just means CF calls go through without
+  // tokens (and get rejected if enforcement is on, which we control
+  // server-side).
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: kDebugMode
+          ? const AndroidDebugProvider()
+          : const AndroidPlayIntegrityProvider(),
+    );
+  } catch (e, st) {
+    developer.log('App Check activation failed (non-fatal)',
+        name: 'wn.appCheck', error: e, stackTrace: st);
+  }
+
   // Register the background FCM handler BEFORE the app starts listening
   // for messages — Firebase Messaging caches the registration once per
   // process and skipping this means data-only refresh pushes silently
