@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { checkAndIncrement, RATE_LIMITS } from "./rateLimit";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
@@ -170,6 +171,17 @@ export const fetchExternalRatings = onCall(
         return cached;
       }
     }
+
+    // Cache miss / stale — about to hit OMDb. Apply per-user daily quota
+    // here, AFTER the cache check, so cached responses are free for the
+    // user (they're free for us too, no OMDb call). Cap is generous: a
+    // user opening 200 fresh titles in 24h is an extreme power-user
+    // pattern and well above any normal session.
+    await checkAndIncrement(
+      request.auth.uid,
+      "externalRatings",
+      RATE_LIMITS.externalRatings,
+    );
 
     let fresh: ExternalRatings;
     try {

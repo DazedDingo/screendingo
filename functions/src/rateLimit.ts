@@ -96,4 +96,5 @@ export async function checkAndIncrement(
 export const RATE_LIMITS = {
   concierge: 50, // chat messages + Like-these refreshes
   scoreRecommendations: 30, // each call = ~10 Gemini scoring batches
+  externalRatings: 200, // OMDb fetches — only counted on cache MISS
 } as const;
