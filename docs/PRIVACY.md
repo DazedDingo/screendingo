@@ -92,4 +92,4 @@ changes will be flagged in-app via the Profile screen.
 Zachary Birney (DazedDingo) — zachbirney@gmail.com
 
 Source code, release notes, and issue tracker:
-<https://github.com/DazedDingo/watchnext>
+<https://github.com/DazedDingo/screendingo>

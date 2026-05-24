@@ -7,7 +7,7 @@
 **A shared movie & TV companion for two-person households.**
 Decide what to watch — *together* — with recommendations that learn from both partners' taste.
 
-[![Latest release](https://img.shields.io/github/v/release/DazedDingo/watchnext?label=latest&color=E50914)](https://github.com/DazedDingo/watchnext/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/DazedDingo/screendingo?label=latest&color=E50914)](https://github.com/DazedDingo/screendingo/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)](#install)
 [![Built with Flutter](https://img.shields.io/badge/Flutter-3.11+-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Material 3](https://img.shields.io/badge/Material%203-Dark-6750A4)](https://m3.material.io)
@@ -16,7 +16,7 @@ Decide what to watch — *together* — with recommendations that learn from bot
 
 ## Install
 
-Head to the [**latest release**](https://github.com/DazedDingo/watchnext/releases/latest), download the `.apk` asset, and open it on your Android phone.
+Head to the [**latest release**](https://github.com/DazedDingo/screendingo/releases/latest), download the `.apk` asset, and open it on your Android phone.
 
 > **First time?** You may need to allow your browser to install apps from unknown sources. Once installed, upgrades just work — every new APK preserves your Trakt login, settings, and household data.
 
@@ -207,7 +207,7 @@ firebase deploy --only functions
 
 ## License
 
-© 2026 Zachary Birney, trading as [DazedDingo](https://github.com/DazedDingo). All rights reserved — see [`LICENSE`](LICENSE), [Privacy](docs/PRIVACY.md), [Terms](docs/TERMS.md). Both docs are served at `dazeddingo.github.io/watchnext/PRIVACY` and `.../TERMS` once GitHub Pages is enabled on `docs/`.
+© 2026 Zachary Birney, trading as [DazedDingo](https://github.com/DazedDingo). All rights reserved — see [`LICENSE`](LICENSE), [Privacy](docs/PRIVACY.md), [Terms](docs/TERMS.md). Both docs are served at `dazeddingo.github.io/screendingo/PRIVACY` and `.../TERMS` once GitHub Pages is enabled on `docs/`.
 
 ---
 

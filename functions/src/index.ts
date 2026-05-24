@@ -102,7 +102,7 @@ async function postTraktToken(body: Record<string, string>): Promise<TraktTokenR
     headers: {
       "Content-Type": "application/json",
       "Accept": "application/json",
-      "User-Agent": "watchnext/1.0 (+https://github.com/DazedDingo/watchnext)",
+      "User-Agent": "watchnext/1.0 (+https://github.com/DazedDingo/screendingo)",
     },
     body: JSON.stringify(body),
   });
@@ -176,7 +176,7 @@ export const traktRevoke = onCall(
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "watchnext/1.0 (+https://github.com/DazedDingo/watchnext)",
+        "User-Agent": "watchnext/1.0 (+https://github.com/DazedDingo/screendingo)",
       },
       body: JSON.stringify({
         token,

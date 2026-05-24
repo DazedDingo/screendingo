@@ -4,17 +4,17 @@
 # Once GitHub Pages is enabled (repo Settings → Pages → Source: "Deploy
 # from a branch" → main / docs) the following URLs go live:
 #
-#   https://dazeddingo.github.io/watchnext/PRIVACY
-#   https://dazeddingo.github.io/watchnext/TERMS
-#   https://dazeddingo.github.io/watchnext/play-store/LISTING
+#   https://dazeddingo.github.io/screendingo/PRIVACY
+#   https://dazeddingo.github.io/screendingo/TERMS
+#   https://dazeddingo.github.io/screendingo/play-store/LISTING
 #
 # These URLs are referenced from the in-app Profile → About footer
 # (lib/screens/profile/profile_screen.dart); changing the slug here
 # means updating the in-app links too.
-title: WatchNext
-description: A movie + TV recommender built for two-person households.
+title: ScreenDingo
+description: A shared movie + TV recommender built for two-person households.
 url: https://dazeddingo.github.io
-baseurl: /watchnext
+baseurl: /screendingo
 
 # Theme — picks up a minimal styled default without needing custom CSS.
 # Hosted GitHub Pages supports the cayman/minima themes out of the box.

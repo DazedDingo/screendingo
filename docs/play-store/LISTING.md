@@ -94,7 +94,7 @@ the in-app Profile screen.
 ScreenDingo is a personal project, built and maintained by Zachary
 Birney (trading as DazedDingo). Source code, release notes, and the
 issue tracker are public at
-github.com/DazedDingo/watchnext. Privacy policy and terms are
+github.com/DazedDingo/screendingo. Privacy policy and terms are
 linked from the Play listing.
 ```
 
@@ -278,7 +278,7 @@ they'd earn.
       with the upload keystore (Play Console will reject mismatched
       certs)
 - [ ] Privacy policy hosted at a public URL (GitHub Pages of
-      `PRIVACY.md` is fine: `dazeddingo.github.io/watchnext/PRIVACY`)
+      `PRIVACY.md` is fine: `dazeddingo.github.io/screendingo/PRIVACY`)
 - [ ] Terms of service hosted at a public URL
 - [ ] App Check enabled + enforcement on shipped Cloud Functions
 - [ ] Cloud Billing alerts configured ($1, $5, $20)
