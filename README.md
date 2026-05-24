@@ -226,17 +226,17 @@ you can debug against a build that matches the Play release.
    you can never update your Play listing again.
 
    ```bash
-   keytool -genkey -v -keystore watchnext-upload.jks \
-     -alias watchnext-upload \
+   keytool -genkey -v -keystore screendingo-upload.jks \
+     -alias screendingo-upload \
      -keyalg RSA -keysize 2048 -validity 10000
-   base64 -w 0 watchnext-upload.jks > watchnext-upload.b64
+   base64 -w 0 screendingo-upload.jks > screendingo-upload.b64
    ```
 
 2. **Add four GitHub secrets** (Settings → Secrets and variables →
    Actions):
-   - `UPLOAD_KEYSTORE_B64` — contents of `watchnext-upload.b64`
+   - `UPLOAD_KEYSTORE_B64` — contents of `screendingo-upload.b64`
    - `UPLOAD_KEYSTORE_PASSWORD` — keystore password
-   - `UPLOAD_KEY_ALIAS` — `watchnext-upload`
+   - `UPLOAD_KEY_ALIAS` — `screendingo-upload`
    - `UPLOAD_KEY_PASSWORD` — key password (usually same as keystore)
 
 3. **Enable Firebase App Check** (Firebase console → App Check →

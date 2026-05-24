@@ -21,10 +21,10 @@ name: release-aab (Play upload bundle)
 #
 # Generate the upload keystore locally (KEEP IT SAFE — losing it means
 # you can't update your Play listing):
-#   keytool -genkey -v -keystore watchnext-upload.jks -alias watchnext-upload \
+#   keytool -genkey -v -keystore screendingo-upload.jks -alias screendingo-upload \
 #     -keyalg RSA -keysize 2048 -validity 10000
-#   base64 -w 0 watchnext-upload.jks > watchnext-upload.b64
-# Then set UPLOAD_KEYSTORE_B64 to the contents of watchnext-upload.b64.
+#   base64 -w 0 screendingo-upload.jks > screendingo-upload.b64
+# Then set UPLOAD_KEYSTORE_B64 to the contents of screendingo-upload.b64.
 
 on:
   workflow_dispatch:
