@@ -220,4 +220,94 @@ void main() {
       expect(survivors.map((r) => r.id), ['2']);
     });
   });
+
+  // ─── SubgenreFilterController.pruneOrphaned ──────────────────────────────
+  //
+  // v0.10.5 behaviour: when the user swaps the genre selection (removes
+  // Documentary and picks Horror), any selected sub-topics whose parent
+  // genre is no longer present get dropped. Adding to the existing
+  // selection preserves them. Uses [kSubgenreParents] + a passed-in
+  // genreMatches function (synonym-aware in production).
+  group('SubgenreFilterController.pruneOrphaned', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues(const {});
+    });
+    bool fakeMatches(Iterable<String> rec, String selected) =>
+        rec.contains(selected);
+
+    test('preserves selection when parent genre is still present', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final ctl = SubgenreFilterController(
+        prefs,
+        {ViewMode.solo: {'wildlife'}, ViewMode.together: const <String>{}},
+      );
+      await ctl.pruneOrphaned(
+        ViewMode.solo,
+        {'Documentary', 'Drama'},
+        fakeMatches,
+      );
+      expect(ctl.state[ViewMode.solo], {'wildlife'});
+    });
+
+    test('drops orphan when parent genre is no longer selected', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final ctl = SubgenreFilterController(
+        prefs,
+        {ViewMode.solo: {'wildlife'}, ViewMode.together: const <String>{}},
+      );
+      await ctl.pruneOrphaned(ViewMode.solo, {'Horror'}, fakeMatches);
+      expect(ctl.state[ViewMode.solo], isEmpty);
+    });
+
+    test('multi-parent tag survives if any parent is still selected',
+        () async {
+      final prefs = await SharedPreferences.getInstance();
+      final ctl = SubgenreFilterController(
+        prefs,
+        {
+          ViewMode.solo: {'true_crime'},
+          ViewMode.together: const <String>{},
+        },
+      );
+      await ctl.pruneOrphaned(ViewMode.solo, {'Crime'}, fakeMatches);
+      expect(ctl.state[ViewMode.solo], {'true_crime'});
+    });
+
+    test('clears every selection when no genre is selected', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final ctl = SubgenreFilterController(
+        prefs,
+        {
+          ViewMode.solo: {'wildlife', 'slasher'},
+          ViewMode.together: const <String>{},
+        },
+      );
+      await ctl.pruneOrphaned(
+          ViewMode.solo, const <String>{}, fakeMatches);
+      expect(ctl.state[ViewMode.solo], isEmpty);
+    });
+
+    test('no-op when current selection is empty (no write fires)', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final ctl = SubgenreFilterController(
+        prefs,
+        {ViewMode.solo: const <String>{}, ViewMode.together: const <String>{}},
+      );
+      await ctl.pruneOrphaned(ViewMode.solo, {'Horror'}, fakeMatches);
+      expect(ctl.state[ViewMode.solo], isEmpty);
+    });
+
+    test('mixed orphans + survivors — only orphans dropped', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final ctl = SubgenreFilterController(
+        prefs,
+        {
+          ViewMode.solo: {'wildlife', 'slasher'},
+          ViewMode.together: const <String>{},
+        },
+      );
+      await ctl.pruneOrphaned(ViewMode.solo, {'Documentary'}, fakeMatches);
+      expect(ctl.state[ViewMode.solo], {'wildlife'});
+    });
+  });
 }

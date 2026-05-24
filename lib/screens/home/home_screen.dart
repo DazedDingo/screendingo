@@ -145,6 +145,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Auto-prune sub-genre selections whose parent genres are no longer
+    // present in the selected Genre set. Net effect: swapping Documentary →
+    // Horror drops the orphaned "animal docs" tag; ADDING Drama to
+    // {Documentary} preserves "animal docs" because Documentary is still
+    // selected. Registered inside build() rather than initState() because
+    // ref.listen needs to attach to the current ConsumerState lifecycle —
+    // Riverpod dedupes repeat registrations across rebuilds for the same
+    // provider/callback pair.
+    ref.listen<Set<String>>(selectedGenresProvider, (prev, next) {
+      final mode = ref.read(viewModeProvider);
+      ref
+          .read(modeSubgenreProvider.notifier)
+          .pruneOrphaned(mode, next, genreMatches);
+    });
+
     // Onboarding gate — show the first-run poster-rating grid when BOTH:
     //   (a) the user hasn't flipped the local "done" flag yet, AND
     //   (b) the household has no ratings and no watch entries (so we're
@@ -507,6 +522,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 // and drive the inline progress bar.
                 _fireRefresh();
               },
+              onResetAll: () {
+                // Wipe every active filter in one gesture so a user who's
+                // stacked too many narrowings can recover without hunting
+                // through each section. UX reviews #1 + #2 — this was the
+                // single biggest gap for both new and power users.
+                ref.read(modeGenreProvider.notifier).clear(mode);
+                ref.read(modeSubgenreProvider.notifier).clear(mode);
+                ref.read(modeRuntimeProvider.notifier).set(mode, null);
+                ref
+                    .read(modeYearRangeProvider.notifier)
+                    .set(mode, const YearRange.unbounded());
+                ref.read(modeMediaTypeProvider.notifier).set(mode, null);
+                ref
+                    .read(modeAwardsProvider.notifier)
+                    .set(mode, AwardCategory.none);
+                ref
+                    .read(modeSortProvider.notifier)
+                    .set(mode, SortMode.topRated);
+                ref
+                    .read(modeCuratedSourceProvider.notifier)
+                    .set(mode, CuratedSource.none);
+                ref.read(includeWatchedProvider.notifier).set(false);
+              },
             ),
             const _UpNextRow(),
             if (tonightsPick != null) ...[
@@ -663,6 +701,7 @@ class _FiltersPanel extends StatefulWidget {
   final ValueChanged<CuratedSource> onCuratedSourceSelect;
   final ValueChanged<bool> onIncludeWatchedChanged;
   final VoidCallback onApplyAndClose;
+  final VoidCallback onResetAll;
   final bool alreadyFreshPulse;
 
   const _FiltersPanel({
@@ -687,6 +726,7 @@ class _FiltersPanel extends StatefulWidget {
     required this.onCuratedSourceSelect,
     required this.onIncludeWatchedChanged,
     required this.onApplyAndClose,
+    required this.onResetAll,
     this.alreadyFreshPulse = false,
   });
 
@@ -881,57 +921,93 @@ class _FiltersPanelState extends State<_FiltersPanel> {
                   onToggle: widget.onToggleSubgenre,
                   onClear: widget.onClearSubgenres,
                 ),
-                const _FilterSectionLabel('Length'),
+                // Length + Sort by sit back-to-back without their own section
+                // labels — the segment values ("Any / Short / Medium / Long",
+                // "Top rated / Popularity / Recent / Underseen") are
+                // self-labelling, and the labels were eating ~28px each on
+                // a one-screen budget. (UX review #3.)
                 _RuntimeSegment(
                   selected: widget.runtime,
                   onSelect: widget.onRuntimeSelect,
                 ),
-                const _FilterSectionLabel('Sort by'),
                 _SortModeSegment(
                   selected: widget.sortMode,
                   onSelect: widget.onSortModeSelect,
                 ),
-                const _FilterSectionLabel('Awards'),
-                _AwardsDropdown(
-                  selected: widget.awards,
-                  onSelect: widget.onAwardsSelect,
+                // Side-effect helper — Underseen also acts as a filter
+                // (vote_count.lte=500 + baseline suppression, gotcha 36); the
+                // segment label alone doesn't telegraph that the pool will
+                // shrink. Only renders when the mode is actually active.
+                if (widget.sortMode == SortMode.underseen)
+                  const _FilterHelperText(
+                    'Hides titles with >500 votes — fewer results overall.',
+                  ),
+                // Awards + Curated, two columns. Both are popup dropdowns of
+                // similar visual weight; stacking them was wasting ~70px and
+                // implying they were independent sections instead of two
+                // power-user filters of the same shape. (User ask + UX
+                // review #1 + #3.)
+                const _FilterSectionLabel('Awards & curated'),
+                _AwardsCuratedRow(
+                  awards: widget.awards,
+                  onAwardsSelect: widget.onAwardsSelect,
+                  curatedSource: widget.curatedSource,
+                  onCuratedSourceSelect: widget.onCuratedSourceSelect,
                 ),
-                const _FilterSectionLabel('Curated'),
-                _CuratedSourceSegment(
-                  selected: widget.curatedSource,
-                  onSelect: widget.onCuratedSourceSelect,
-                ),
-                const _FilterSectionLabel('Year'),
                 YearRangeSlider(
                   range: widget.yearRange,
                   onChanged: widget.onYearRangeChanged,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 _FilterSwitchRow(
                   icon: Icons.visibility_outlined,
-                  label: 'Include watched',
+                  // Honest label: watchedKeysProvider treats in-progress shows
+                  // as "watched" too (so the toggle controls both); the old
+                  // "Include watched" labelling under-disclosed that.
+                  // (UX review #4.)
+                  label: 'Include watched & in-progress',
                   value: widget.includeWatched,
                   onChanged: widget.onIncludeWatchedChanged,
                 ),
-                const SizedBox(height: 12),
-                // Primary "apply" affordance — filter changes auto-refresh via
-                // the 700ms debounce (gotcha 15), but the explicit CTA commits
-                // immediately AND collapses the panel so the rec list isn't
-                // buried. Styled to match the Liquid UI family (gotcha 42):
-                // accent gradient + glow ring visually mirrors the segmented
-                // button blob so it reads as "the primary action in this
-                // panel" without the user having to hunt for it.
+                const SizedBox(height: 8),
+                // Reset All + Apply CTA share one row. Reset-All renders only
+                // when ≥1 filter is active so it doesn't add noise on first
+                // open. (UX reviews #1 + #2.) Styled as a flat TextButton so
+                // the primary CTA still dominates the row.
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-                  child: _ApplyFiltersCta(
-                    onPressed: () {
-                      widget.onApplyAndClose();
-                      setState(() => _isExpanded = false);
-                    },
+                  child: Row(
+                    children: [
+                      if (_activeCount > 0) ...[
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 0),
+                            minimumSize: const Size(0, 44),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () {
+                            widget.onResetAll();
+                          },
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Reset all',
+                              style: TextStyle(fontSize: 13)),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
+                        child: _ApplyFiltersCta(
+                          onPressed: () {
+                            widget.onApplyAndClose();
+                            setState(() => _isExpanded = false);
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
               ],
             ),
           ),
@@ -1127,6 +1203,39 @@ class _SubGenreSection extends StatefulWidget {
 
 class _SubGenreSectionState extends State<_SubGenreSection> {
   bool _expanded = false;
+  // Tracks whether the user has manually toggled this session — once they
+  // have, the auto-expand-on-context heuristic stops fighting their choice.
+  bool _userToggled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-expand on first build if the user already has a genre selected
+    // AND no sub-topics chosen yet — the section is empty and contextually
+    // relevant, so showing the chip grid saves a tap. Casual users opening
+    // the panel without genres still see it collapsed (no context to show).
+    // UX review #2.
+    if (_shouldAutoExpand()) _expanded = true;
+  }
+
+  @override
+  void didUpdateWidget(covariant _SubGenreSection old) {
+    super.didUpdateWidget(old);
+    // Genre got selected after the section was rendered — auto-expand UNLESS
+    // the user has already taken a manual action on the header (then their
+    // choice wins). Mirrors the initState heuristic for the "context arrived
+    // later" case.
+    if (!_userToggled &&
+        !_expanded &&
+        widget.selectedGenres.length > old.selectedGenres.length &&
+        _shouldAutoExpand()) {
+      setState(() => _expanded = true);
+    }
+  }
+
+  bool _shouldAutoExpand() {
+    return widget.selectedGenres.isNotEmpty && widget.selected.isEmpty;
+  }
 
   /// Tags whose parent genre matches at least one selected Genre (synonym-
   /// aware), UNIONed with currently-selected sub-topics (so the user can
@@ -1176,7 +1285,10 @@ class _SubGenreSectionState extends State<_SubGenreSection> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             InkWell(
-              onTap: () => setState(() => _expanded = !_expanded),
+              onTap: () => setState(() {
+                _expanded = !_expanded;
+                _userToggled = true;
+              }),
               borderRadius: BorderRadius.circular(10),
               child: Padding(
                 padding:
@@ -1345,7 +1457,11 @@ class _FilterSectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      // Tightened from (16,10,16,4) → (16,6,16,2) so the filter panel fits
+      // a 360x800 phone screen without scrolling. Two of the four section
+      // labels were also dropped entirely (Length / Sort by are self-
+      // labelling segments). UX review #3.
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(
@@ -1354,6 +1470,74 @@ class _FilterSectionLabel extends StatelessWidget {
           letterSpacing: 0.8,
           color: cs.onSurface.withValues(alpha: 0.55),
         ),
+      ),
+    );
+  }
+}
+
+/// Inline helper line that explains a side-effect of an active filter mode
+/// (e.g. Underseen sort also acts as a vote-count filter). Renders below
+/// the relevant control only when its mode is active so default state
+/// stays clean. UX review #4.
+class _FilterHelperText extends StatelessWidget {
+  final String text;
+  const _FilterHelperText(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontStyle: FontStyle.italic,
+          color: cs.onSurface.withValues(alpha: 0.55),
+        ),
+      ),
+    );
+  }
+}
+
+/// Awards + Curated side-by-side. Two popup dropdowns of identical visual
+/// weight that used to stack with their own section labels — folding them
+/// into one row under a shared label cuts ~70px and reflects that
+/// they're conceptually two power-user filters of the same shape.
+class _AwardsCuratedRow extends StatelessWidget {
+  final AwardCategory awards;
+  final ValueChanged<AwardCategory> onAwardsSelect;
+  final CuratedSource curatedSource;
+  final ValueChanged<CuratedSource> onCuratedSourceSelect;
+
+  const _AwardsCuratedRow({
+    required this.awards,
+    required this.onAwardsSelect,
+    required this.curatedSource,
+    required this.onCuratedSourceSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: _AwardsDropdown(
+              selected: awards,
+              onSelect: onAwardsSelect,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CuratedSourceSegment(
+              selected: curatedSource,
+              onSelect: onCuratedSourceSelect,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1549,8 +1733,11 @@ class _FilterDropdownShell<T> extends StatelessWidget {
     final active = activeLabel != null;
     final borderColor = active ? cs.primary : cs.outline;
     final textColor = active ? cs.primary : null;
-    return _segmentWrapper(
-      child: PopupMenuButton<T>(
+    // No outer _segmentWrapper here — Awards + Curated now sit inside
+    // _AwardsCuratedRow which provides its own horizontal-16 padding.
+    // Wrapping at both layers would double-pad the controls inside the
+    // 2-col Row (gotcha: the original singleton layout did wrap here).
+    return PopupMenuButton<T>(
         tooltip: tooltip,
         position: PopupMenuPosition.under,
         onSelected: (v) {
@@ -1598,8 +1785,7 @@ class _FilterDropdownShell<T> extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }
 

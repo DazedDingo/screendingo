@@ -58,6 +58,45 @@ class SubgenreFilterController
   }
 
   Future<void> clear(ViewMode mode) => set(mode, const <String>{});
+
+  /// Drops any selected sub-genre tags whose parent genres no longer
+  /// intersect [selectedGenres]. Called from the Home screen whenever the
+  /// genre selection changes — preserves sub-topics on pure-additive genre
+  /// edits (e.g. adding Drama to {Documentary}) while clearing them on
+  /// genre swaps (replacing Documentary with Horror leaves "animal docs"
+  /// orphaned). Synonym-aware via [genreMatches] so picking the TV variant
+  /// of a parent counts.
+  ///
+  /// No-op when the current selection has no orphans — keeps writes /
+  /// listeners quiet on every keystroke-equivalent genre toggle.
+  Future<void> pruneOrphaned(
+    ViewMode mode,
+    Set<String> selectedGenres,
+    bool Function(Iterable<String> rec, String selected) genreMatches,
+  ) async {
+    final current = state[mode] ?? const <String>{};
+    if (current.isEmpty) return;
+    final survivors = <String>{};
+    for (final tag in current) {
+      final parents = kSubgenreParents[tag] ?? const <String>{};
+      // No parent declaration → keep (defensive; every tag should be
+      // parented per the test but a future tag added without parents
+      // should not silently disappear).
+      if (parents.isEmpty) {
+        survivors.add(tag);
+        continue;
+      }
+      // Any parent matches any selected genre (synonym-aware) → keep.
+      for (final p in parents) {
+        if (genreMatches(selectedGenres, p)) {
+          survivors.add(tag);
+          break;
+        }
+      }
+    }
+    if (survivors.length == current.length) return; // no orphans
+    await set(mode, survivors);
+  }
 }
 
 /// Exposed so tests can `overrideWithValue(AsyncValue.data(prefs))` and
