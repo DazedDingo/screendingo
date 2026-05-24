@@ -1,0 +1,130 @@
+name: release-aab (Play upload bundle)
+
+# Manual-trigger only. The debug APK release workflow stays the primary
+# path for sideload installs; this one produces a Play-ready .aab signed
+# with the dedicated UPLOAD keystore (NOT the debug keystore — Play
+# rejects debug-signed bundles).
+#
+# Run by hand from the Actions tab when you want to push a new build to
+# Play Console. Downloads the resulting .aab as a workflow artifact;
+# upload to Play Console manually (or wire fastlane / Play Publisher API
+# in a follow-up).
+#
+# Required GitHub secrets (set these once before first run):
+#   UPLOAD_KEYSTORE_B64       — base64 of your upload keystore (.jks)
+#   UPLOAD_KEYSTORE_PASSWORD  — keystore password
+#   UPLOAD_KEY_ALIAS          — key alias inside the keystore
+#   UPLOAD_KEY_PASSWORD       — key password (usually same as keystore)
+#   GOOGLE_SERVICES_JSON      — already set for the APK workflow
+#   TMDB_API_KEY              — already set for the APK workflow
+#   TRAKT_CLIENT_ID           — already set for the APK workflow
+#
+# Generate the upload keystore locally (KEEP IT SAFE — losing it means
+# you can't update your Play listing):
+#   keytool -genkey -v -keystore watchnext-upload.jks -alias watchnext-upload \
+#     -keyalg RSA -keysize 2048 -validity 10000
+#   base64 -w 0 watchnext-upload.jks > watchnext-upload.b64
+# Then set UPLOAD_KEYSTORE_B64 to the contents of watchnext-upload.b64.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-aab:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write  # to upload the bundle artifact
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Sanity-check upload-keystore secrets are configured
+        run: |
+          missing=""
+          [ -z "${{ secrets.UPLOAD_KEYSTORE_B64 }}" ] && missing="$missing UPLOAD_KEYSTORE_B64"
+          [ -z "${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}" ] && missing="$missing UPLOAD_KEYSTORE_PASSWORD"
+          [ -z "${{ secrets.UPLOAD_KEY_ALIAS }}" ] && missing="$missing UPLOAD_KEY_ALIAS"
+          [ -z "${{ secrets.UPLOAD_KEY_PASSWORD }}" ] && missing="$missing UPLOAD_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secret(s):$missing — see release-aab.yml header for setup."
+            exit 1
+          fi
+
+      - name: Write google-services.json
+        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+
+      - name: Restore upload keystore
+        # Distinct from the debug keystore the APK workflow uses. Lives at
+        # a separate path so the debug workflow can't accidentally pick it
+        # up; AGP picks the right one via signingConfig (added in the
+        # play-release build type — see android/app/build.gradle.kts).
+        run: |
+          mkdir -p android/keystore
+          echo '${{ secrets.UPLOAD_KEYSTORE_B64 }}' | base64 -d > android/keystore/upload.jks
+          if ! keytool -list -keystore android/keystore/upload.jks \
+              -storepass '${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}' \
+              -alias '${{ secrets.UPLOAD_KEY_ALIAS }}' > /dev/null 2>&1; then
+            echo "::error::Upload keystore restoration failed — secret missing, malformed, or wrong password / alias."
+            exit 1
+          fi
+          echo "Upload keystore fingerprint (for Play registration):"
+          keytool -list -v -keystore android/keystore/upload.jks \
+            -storepass '${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}' \
+            -alias '${{ secrets.UPLOAD_KEY_ALIAS }}' | grep -E 'SHA1:|SHA256:'
+
+      - name: Write key.properties (consumed by app/build.gradle.kts)
+        # Gradle reads keystore creds from key.properties — keeps secrets
+        # out of the build script. File is gitignored.
+        run: |
+          cat > android/key.properties <<EOF
+          storeFile=keystore/upload.jks
+          storePassword=${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.UPLOAD_KEY_ALIAS }}
+          keyPassword=${{ secrets.UPLOAD_KEY_PASSWORD }}
+          EOF
+
+      - run: flutter pub get
+
+      - name: Build app bundle (Play-signed)
+        # WN_PLAY_SIGNING=1 flips the release signingConfig over to the
+        # upload keystore (see android/app/build.gradle.kts). Without the
+        # env var the release build keeps signing with the debug
+        # keystore — matters for the parallel APK workflow which must
+        # NOT pick up the upload key.
+        env:
+          WN_PLAY_SIGNING: "1"
+        run: |
+          flutter build appbundle --release \
+            --dart-define=TMDB_API_KEY=${{ secrets.TMDB_API_KEY }} \
+            --dart-define=TRAKT_CLIENT_ID=${{ secrets.TRAKT_CLIENT_ID }}
+
+      - name: Get version from pubspec
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          BUILD=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f2)
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "build=$BUILD" >> $GITHUB_OUTPUT
+          echo "Building Play bundle v$VERSION+$BUILD"
+
+      - name: Rename .aab for download clarity
+        run: |
+          mv build/app/outputs/bundle/release/app-release.aab \
+             build/app/outputs/bundle/release/WatchNext-${{ steps.version.outputs.tag }}.aab
+
+      - name: Upload bundle as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchNext-${{ steps.version.outputs.tag }}-aab
+          path: build/app/outputs/bundle/release/WatchNext-${{ steps.version.outputs.tag }}.aab
+          retention-days: 30
+          # Bundle is NOT attached to a GitHub Release — Play AABs aren't
+          # useful to sideload users (only Play / bundletool can install
+          # them). Download from the Actions run page and upload to Play
+          # Console manually.

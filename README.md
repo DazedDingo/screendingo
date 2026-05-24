@@ -207,4 +207,74 @@ firebase deploy --only functions
 
 ## License
 
-Personal use. Built by [DazedDingo](https://github.com/DazedDingo).
+© 2026 Zachary Birney, trading as [DazedDingo](https://github.com/DazedDingo). All rights reserved — see [`LICENSE`](LICENSE), [`PRIVACY.md`](PRIVACY.md), [`TERMS.md`](TERMS.md).
+
+---
+
+## Publishing to Google Play (release-prep checklist)
+
+The sideload APK pipeline above is unchanged — every push to `main`
+still builds a debug-signed APK and attaches it to a GitHub Release for
+quick install and field-debug. The Play track is a parallel,
+manually-triggered build (`.github/workflows/release-aab.yml`) and ships
+the **same code** signed with a separate upload key. Keep both around so
+you can debug against a build that matches the Play release.
+
+### One-time setup (off-repo)
+
+1. **Generate the upload keystore.** Keep it offline — losing it means
+   you can never update your Play listing again.
+
+   ```bash
+   keytool -genkey -v -keystore watchnext-upload.jks \
+     -alias watchnext-upload \
+     -keyalg RSA -keysize 2048 -validity 10000
+   base64 -w 0 watchnext-upload.jks > watchnext-upload.b64
+   ```
+
+2. **Add four GitHub secrets** (Settings → Secrets and variables →
+   Actions):
+   - `UPLOAD_KEYSTORE_B64` — contents of `watchnext-upload.b64`
+   - `UPLOAD_KEYSTORE_PASSWORD` — keystore password
+   - `UPLOAD_KEY_ALIAS` — `watchnext-upload`
+   - `UPLOAD_KEY_PASSWORD` — key password (usually same as keystore)
+
+3. **Enable Firebase App Check** (Firebase console → App Check →
+   register the Android app with Play Integrity provider, then enable
+   enforcement on shipped Cloud Functions). Blocks reverse-engineered
+   clients from spending your Gemini quota.
+
+4. **Set Cloud Billing alerts** (GCP Console → Billing → Budgets &
+   alerts → $1 / $5 / $20). Catches runaway spend before it's a wallet
+   event.
+
+5. **Trademark sanity-check "WatchNext"** on USPTO TESS / EUIPO eSearch
+   before publishing — generic name, confirm nobody's already filed in
+   the entertainment-software class.
+
+6. **Register a Google Play developer account** ($25 one-time + ID
+   verification). Legal name on file, brand "DazedDingo" as the
+   developer display name.
+
+### Per-release flow
+
+1. Push to `main` as usual → debug APK gets released for sideload
+   testing.
+2. When ready to ship to Play, fire the `release-aab` workflow manually
+   (Actions tab → "release-aab (Play upload bundle)" → Run workflow).
+3. Download the AAB artifact from the workflow run page.
+4. Upload to Play Console (Internal testing → Production track when
+   stable). The 14-day, 20-tester closed-test requirement applies only
+   to brand-new apps; once you're past it, updates roll out directly.
+
+### Cost protection
+
+The Cloud Functions that spend metered third-party quota have per-user
+daily caps (see [`functions/src/rateLimit.ts`](functions/src/rateLimit.ts)):
+
+- `concierge`: 50 chat / Like-these messages per user per 24h
+- `scoreRecommendations`: 30 refreshes per user per 24h
+
+Generous for real households, tight enough that one abusive client
+can't burn the shared Gemini free tier. Counters live at
+`/userRateLimits/{uid}` (admin-SDK only).

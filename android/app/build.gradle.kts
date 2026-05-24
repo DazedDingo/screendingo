@@ -38,6 +38,16 @@ android {
     // Firebase-registered Google Sign-In. The keystore lives at
     // android/app/debug.keystore and is .gitignored; CI writes it from the
     // DEBUG_KEYSTORE_B64 secret before the build step.
+    //
+    // Play-bundle builds (the .aab uploaded to Play Console) sign with a
+    // SEPARATE upload keystore stored under android/keystore/upload.jks,
+    // configured via android/key.properties. The AAB workflow writes both
+    // files from GitHub secrets and sets WN_PLAY_SIGNING=1 to flip the
+    // release signingConfig over. Without that env var the release build
+    // signs with the existing debug key — preserving the sideload-APK
+    // contract so existing GitHub-Releases users keep getting updates
+    // signed by the same cert.
+    val usePlaySigning: Boolean = System.getenv("WN_PLAY_SIGNING") == "1"
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug.keystore")
@@ -45,11 +55,32 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        if (usePlaySigning) {
+            create("upload") {
+                val keyProps = java.util.Properties()
+                val keyPropsFile = rootProject.file("key.properties")
+                if (!keyPropsFile.exists()) {
+                    throw GradleException(
+                        "WN_PLAY_SIGNING=1 but android/key.properties is missing. " +
+                            "The AAB workflow writes it from UPLOAD_KEYSTORE_* secrets."
+                    )
+                }
+                keyPropsFile.inputStream().use { keyProps.load(it) }
+                storeFile = rootProject.file(keyProps["storeFile"] as String)
+                storePassword = keyProps["storePassword"] as String
+                keyAlias = keyProps["keyAlias"] as String
+                keyPassword = keyProps["keyPassword"] as String
+            }
+        }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (usePlaySigning) {
+                signingConfigs.getByName("upload")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

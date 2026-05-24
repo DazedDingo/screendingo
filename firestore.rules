@@ -120,6 +120,12 @@ service cloud.firestore {
     match /sync/{docId}/{sub=**}   { allow read, write: if false; }
     match /_rate_limits/{token}    { allow read, write: if false; }
 
+    // Per-user daily quota counters for Gemini-spending Cloud Functions
+    // (scoreRecommendations, concierge). Admin-SDK only — clients can't
+    // read their own counters (would enable adaptive abuse) nor write
+    // them. See functions/src/rateLimit.ts.
+    match /userRateLimits/{uid}    { allow read, write: if false; }
+
     // Re-score queue: admin-SDK only. The onRatingWritten trigger stamps
     // entries here; the scheduled drain reads/clears them. Clients must not
     // be able to starve the drain or spoof dirty flags for other households.

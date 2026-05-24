@@ -3,6 +3,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 
 import { GEMINI_API_KEY } from "./scoreRecommendations";
 import { DEFAULT_GEMINI_MODEL, makeGeminiClient } from "./ai/gemini";
+import { checkAndIncrement, RATE_LIMITS } from "./rateLimit";
 
 /**
  * Conversational AI concierge (Phase 8).
@@ -197,6 +198,12 @@ export const concierge = onCall(
     if (typeof message !== "string" || message.length > 1500) {
       throw new HttpsError("invalid-argument", "Message too long (max 1500 chars).");
     }
+
+    // Per-user daily quota — protects the shared Gemini free tier from
+    // any single user looping refresh/Like-these. Throws
+    // `resource-exhausted` when exceeded; client renders a "Daily limit
+    // reached" snackbar. See functions/src/rateLimit.ts.
+    await checkAndIncrement(uid, "concierge", RATE_LIMITS.concierge);
 
     const db = admin.firestore();
 

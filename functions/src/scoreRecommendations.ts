@@ -6,6 +6,7 @@ import {
   GeminiClient,
   makeGeminiClient,
 } from "./ai/gemini";
+import { checkAndIncrement, RATE_LIMITS } from "./rateLimit";
 
 /**
  * Gemini batch scorer — takes a candidate list, reads the household's
@@ -315,6 +316,12 @@ export const scoreRecommendations = onCall(
     if (!candidates.length) {
       throw new HttpsError("invalid-argument", "No valid candidates.");
     }
+
+    // Per-user daily quota — protects the shared Gemini free tier.
+    // Each call fans out to ~10 Gemini batches (one per chunk of 10
+    // candidates), so the cap is intentionally tighter than concierge.
+    // See functions/src/rateLimit.ts.
+    await checkAndIncrement(uid, "scoreRecommendations", RATE_LIMITS.scoreRecommendations);
 
     const db = admin.firestore();
     const memberSnap = await db
