@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/household_provider.dart';
 import '../../providers/mode_provider.dart';
 import '../../providers/ratings_provider.dart';
+import '../../services/app_review_service.dart';
 
 /// Bottom-sheet rating flow. Works at movie/show/season/episode level.
 /// Caller passes trakt ids + (for TV) season/episode so we can push to Trakt.
@@ -111,6 +114,14 @@ class _RatingSheetState extends ConsumerState<RatingSheet> {
             season: widget.season,
             episode: widget.episode,
           );
+      // Positive-signal hook for Play Store in-app review prompt. Only
+      // 4-or-5-star ratings count — a user who's giving high ratings is
+      // a user who'd realistically leave a positive review. The service
+      // applies its own age/cooldown gates; this just nudges the
+      // counter forward. No-op on sideload (Play API unavailable).
+      if (_stars >= 4) {
+        unawaited(AppReviewService().registerPositiveSignal());
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {

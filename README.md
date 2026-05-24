@@ -207,7 +207,7 @@ firebase deploy --only functions
 
 ## License
 
-© 2026 Zachary Birney, trading as [DazedDingo](https://github.com/DazedDingo). All rights reserved — see [`LICENSE`](LICENSE), [`PRIVACY.md`](PRIVACY.md), [`TERMS.md`](TERMS.md).
+© 2026 Zachary Birney, trading as [DazedDingo](https://github.com/DazedDingo). All rights reserved — see [`LICENSE`](LICENSE), [Privacy](docs/PRIVACY.md), [Terms](docs/TERMS.md). Both docs are served at `dazeddingo.github.io/watchnext/PRIVACY` and `.../TERMS` once GitHub Pages is enabled on `docs/`.
 
 ---
 

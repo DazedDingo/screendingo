@@ -244,7 +244,70 @@ class _AboutFooter extends ConsumerWidget {
               fontStyle: FontStyle.italic,
             ),
           ),
+          const SizedBox(height: 16),
+          // ── TMDB attribution ──────────────────────────────────────────
+          // Required by TMDB's Acceptable Use policy for any commercial
+          // (paid) distribution of this app. Logo + disclaimer must be
+          // visible somewhere in the product surface — this About footer
+          // is the standard location indie apps use. Don't remove this
+          // when restyling the Profile page; the app loses its TMDB
+          // commercial-use compliance the moment it's gone.
+          const Icon(Icons.movie_filter_outlined,
+              size: 18, color: Colors.white38),
+          const SizedBox(height: 4),
+          const Text(
+            'This product uses the TMDB API but is not endorsed or '
+            'certified by TMDB.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 10,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _AboutLink('Privacy',
+                  'https://dazeddingo.github.io/watchnext/PRIVACY'),
+              const SizedBox(width: 12),
+              _AboutLink('Terms',
+                  'https://dazeddingo.github.io/watchnext/TERMS'),
+              const SizedBox(width: 12),
+              _AboutLink('Source',
+                  'https://github.com/DazedDingo/watchnext'),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _AboutLink extends StatelessWidget {
+  final String label;
+  final String url;
+  const _AboutLink(this.label, this.url);
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 11,
+            decoration: TextDecoration.underline,
+            decorationColor: Colors.white38,
+          ),
+        ),
       ),
     );
   }

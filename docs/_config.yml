@@ -1,0 +1,36 @@
+# GitHub Pages config for serving PRIVACY.md + TERMS.md at public URLs.
+# Required by Google Play (Data Safety form) and EU/UK GDPR (Article 13).
+#
+# Once GitHub Pages is enabled (repo Settings → Pages → Source: "Deploy
+# from a branch" → main / docs) the following URLs go live:
+#
+#   https://dazeddingo.github.io/watchnext/PRIVACY
+#   https://dazeddingo.github.io/watchnext/TERMS
+#   https://dazeddingo.github.io/watchnext/play-store/LISTING
+#
+# These URLs are referenced from the in-app Profile → About footer
+# (lib/screens/profile/profile_screen.dart); changing the slug here
+# means updating the in-app links too.
+title: WatchNext
+description: A movie + TV recommender built for two-person households.
+url: https://dazeddingo.github.io
+baseurl: /watchnext
+
+# Theme — picks up a minimal styled default without needing custom CSS.
+# Hosted GitHub Pages supports the cayman/minima themes out of the box.
+theme: jekyll-theme-minimal
+
+# Markdown engine + plugin set sized for legal-docs-only use.
+markdown: kramdown
+plugins:
+  - jekyll-relative-links
+
+# Make in-markdown relative links (e.g. [Terms](TERMS.md)) resolve
+# correctly when the .md extension is stripped on the published URL.
+relative_links:
+  enabled: true
+  collections: true
+
+# Don't process files we don't want exposed.
+exclude:
+  - README.md
