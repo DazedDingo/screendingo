@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Path: /households/{hh}/ratings/{ratingId}
 /// ratingId = "{uid}:{level}:{targetId}" (stable so re-rates overwrite cleanly).
 ///
-/// Scale is 1–5 stars in ScreenNext. Trakt is 1–10 on the wire — mapping happens
+/// Scale is 1–5 stars in ScreenDingo. Trakt is 1–10 on the wire — mapping happens
 /// in TraktService (ceil(trakt/2)).
 class Rating {
   final String id;

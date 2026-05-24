@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "description": "ScreenNext Cloud Functions",
+  "description": "ScreenDingo Cloud Functions",
   "engines": {
     "node": "22"
   },

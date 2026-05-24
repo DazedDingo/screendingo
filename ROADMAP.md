@@ -1,4 +1,4 @@
-# ScreenNext — Roadmap
+# ScreenDingo — Roadmap
 
 Where the project is, where it's going, and what's still in the wishlist.
 
@@ -24,7 +24,7 @@ Where the project is, where it's going, and what's still in the wishlist.
 
 **Legend:** ✅ Shipped · 🟡 Partial — some gaps · ⬜ Not started.
 
-The full design spec (screens, data model, flows, copy) lives in `ScreenNext_Design.pdf` — this roadmap tracks implementation against it.
+The full design spec (screens, data model, flows, copy) lives in `ScreenDingo_Design.pdf` — this roadmap tracks implementation against it.
 
 ---
 
@@ -213,7 +213,7 @@ Cross-cutting work to make sure your solo tastes and your shared tastes stay cle
 Extra mileage from Stremio integration.
 
 - [x] **Deep-link from title detail** — `stremio://` button with a web fallback.
-- [x] **ScreenNext as a Stremio addon** — Profile → Stremio mints a household-private install URL; your shared watchlist appears as a Stremio catalog.
+- [x] **ScreenDingo as a Stremio addon** — Profile → Stremio mints a household-private install URL; your shared watchlist appears as a Stremio catalog.
 - [x] **Accent picker + animated wordmark + flat nav bar** — 18 named colour seeds, live recolour on select.
 - [x] **3-state watch status for TV** — title detail uses *Not / Watching / Watched*.
 - [x] **Inline trailer** — tap *Watch trailer* on the title screen and YouTube plays right there (16:9, autoplay on expand).

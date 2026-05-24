@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../widgets/screennext_logo.dart';
+import '../../widgets/screendingo_logo.dart';
 
 /// Cinema-curtain splash shown once on app open.
 ///
 /// Plays a short "curtains rising" animation — two burgundy velvet panels
-/// slide outward from the center to reveal the ScreenNext logo, then the
+/// slide outward from the center to reveal the ScreenDingo logo, then the
 /// screen fades through to `/login` (which the router redirects onward
 /// to `/home` or `/setup` depending on auth state).
 ///
@@ -143,7 +143,7 @@ class _LogoLockup extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: const [
-        ScreenNextLogo(fontSize: 52, fontWeight: FontWeight.w800),
+        ScreenDingoLogo(fontSize: 52, fontWeight: FontWeight.w800),
         SizedBox(height: 8),
         Text(
           'by DazedDingo',

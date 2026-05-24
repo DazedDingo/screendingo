@@ -132,7 +132,7 @@ async function fetchTopPosts(subreddit: string): Promise<RedditPost[]> {
   const url = `https://www.reddit.com/r/${subreddit}/top.json?t=week&limit=50`;
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": "ScreenNext/1.0 (firebase cloud function)" },
+      headers: { "User-Agent": "ScreenDingo/1.0 (firebase cloud function)" },
     });
     if (!res.ok) return [];
     const data = await res.json() as {

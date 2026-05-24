@@ -15,8 +15,8 @@ const _traktHelp =
     'Link Trakt to auto-import watch history and push ratings back.\n\n'
     '• Link — opens Trakt\'s OAuth flow in a browser. Approve and return.\n'
     '• Once linked, your history syncs on app resume (best effort, silent if offline).\n'
-    '• Ratings you set in ScreenNext push to Trakt automatically (1–5 stars → 2–10 on Trakt).\n'
-    '• Unlink — stops future sync. History already imported stays in ScreenNext.\n\n'
+    '• Ratings you set in ScreenDingo push to Trakt automatically (1–5 stars → 2–10 on Trakt).\n'
+    '• Unlink — stops future sync. History already imported stays in ScreenDingo.\n\n'
     'Your Trakt credentials stick through app upgrades — you won\'t need to re-link.';
 
 const _scopeHelp =
@@ -76,7 +76,7 @@ class _TraktLinkScreenState extends ConsumerState<TraktLinkScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Unlink Trakt?'),
-        content: const Text('Your watch history stays in ScreenNext, but future ratings won\'t sync back to Trakt.'),
+        content: const Text('Your watch history stays in ScreenDingo, but future ratings won\'t sync back to Trakt.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Unlink')),

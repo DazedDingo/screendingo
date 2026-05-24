@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
 
-/// "Screen**Next**" wordmark. "Screen" is the on-surface color; "Next" renders
-/// the current theme's primary accent with a continuous left-to-right light
-/// sweep — a chase-light flourish that reads as forward motion.
+/// "Screen**Dingo**" wordmark. "Screen" is the on-surface color; "Dingo"
+/// renders the current theme's primary accent with a continuous left-to-
+/// right light sweep — a chase-light flourish that reads as forward motion.
 ///
 /// (Originally shipped as "WatchNext" through v0.10.x; renamed to
-/// ScreenNext in v0.11.0 after a preliminary trademark search found
-/// commercial-use conflicts in the entertainment-software category —
-/// see docs/trademark-search-2026-05-24.md. The gradient-sweep
-/// treatment on `Next` is intentional and load-bearing for the brand
-/// identity — preserve it on any future rebrand.)
-class ScreenNextLogo extends StatefulWidget {
-  const ScreenNextLogo({
+/// "ScreenNext" in v0.11.0 after a preliminary trademark search found
+/// commercial-use conflicts (Filippe Frulli's Watch Next, Google Android
+/// TV); renamed to "ScreenDingo" in v0.12.0 after the same search later
+/// found an Austrian word mark on "screennext" by Stefan Lennert.
+/// ScreenDingo continues the DazedDingo developer brand — see
+/// docs/trademark-search-2026-05-24.md. The gradient-sweep treatment
+/// on the second word (originally `Next`, now `Dingo`) is intentional
+/// and load-bearing for the brand identity — preserve it on any future
+/// rebrand.)
+class ScreenDingoLogo extends StatefulWidget {
+  const ScreenDingoLogo({
     super.key,
     this.fontSize = 20,
     this.fontWeight = FontWeight.w700,
@@ -21,10 +25,10 @@ class ScreenNextLogo extends StatefulWidget {
   final FontWeight fontWeight;
 
   @override
-  State<ScreenNextLogo> createState() => _ScreenNextLogoState();
+  State<ScreenDingoLogo> createState() => _ScreenDingoLogoState();
 }
 
-class _ScreenNextLogoState extends State<ScreenNextLogo>
+class _ScreenDingoLogoState extends State<ScreenDingoLogo>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
@@ -76,7 +80,7 @@ class _ScreenNextLogoState extends State<ScreenNextLogo>
                 stops: const [0.0, 0.5, 1.0],
                 tileMode: TileMode.clamp,
               ).createShader(bounds),
-              child: Text('Next',
+              child: Text('Dingo',
                   style: textStyle.copyWith(color: Colors.white)),
             );
           },

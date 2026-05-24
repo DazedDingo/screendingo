@@ -169,11 +169,11 @@ final _router = GoRouter(
   ],
 );
 
-class ScreenNextApp extends ConsumerStatefulWidget {
-  const ScreenNextApp({super.key});
+class ScreenDingoApp extends ConsumerStatefulWidget {
+  const ScreenDingoApp({super.key});
 
   @override
-  ConsumerState<ScreenNextApp> createState() => _ScreenNextAppState();
+  ConsumerState<ScreenDingoApp> createState() => _ScreenDingoAppState();
 }
 
 // Hoisted out of the bottom-nav shell so the home-screen-widget bridge stays
@@ -181,7 +181,7 @@ class ScreenNextApp extends ConsumerStatefulWidget {
 // OUTSIDE the shell, so subscribing inside `_ScaffoldWithNavBarState` would
 // drop warm taps from those screens (the shell unmounts and cancels the
 // stream subscription).
-class _ScreenNextAppState extends ConsumerState<ScreenNextApp>
+class _ScreenDingoAppState extends ConsumerState<ScreenDingoApp>
     with WidgetsBindingObserver {
   StreamSubscription<Uri>? _widgetTapSub;
 
@@ -194,7 +194,7 @@ class _ScreenNextAppState extends ConsumerState<ScreenNextApp>
     // mirror the latest values into home_widget prefs. Without this the
     // widget shows its empty state until the user happens to background +
     // foreground the app — which is what was happening when freshly added
-    // widgets reported "Open ScreenNext to refresh".
+    // widgets reported "Open ScreenDingo to refresh".
     WidgetsBinding.instance.addPostFrameCallback((_) => _pushWidgets());
     ref.listenManual(upNextProvider, (_, _) => _pushWidgets());
     ref.listenManual(tonightsPickProvider, (_, _) => _pushWidgets());
@@ -309,7 +309,7 @@ class _ScreenNextAppState extends ConsumerState<ScreenNextApp>
   Widget build(BuildContext context) {
     final theme = ref.watch(themeDataProvider);
     return MaterialApp.router(
-      title: 'ScreenNext',
+      title: 'ScreenDingo',
       theme: theme,
       darkTheme: theme,
       themeMode: ThemeMode.dark,
@@ -378,7 +378,7 @@ class _ErrorScreen extends StatelessWidget {
 // Share-intent + notification setup legitimately needs the auth-shell
 // context (snackbar, household lookup, route push from a deep tile), so they
 // stay scoped to the bottom-nav shell. The widget bridge moved up to
-// `_ScreenNextAppState` because warm taps must route even when the shell is
+// `_ScreenDingoAppState` because warm taps must route even when the shell is
 // unmounted (title detail / login / splash live outside it).
 class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar> {
   StreamSubscription<List<SharedMediaFile>>? _shareSub;

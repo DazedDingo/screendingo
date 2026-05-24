@@ -28,7 +28,7 @@ const _profileHelp =
     '• Reveal notifications — optional push when a prediction reveal is ready.\n'
     '• Ask AI placement — show the concierge entry as an app-bar icon (default), a floating action button, or hide it completely.\n'
     '• Up next style — pick how the Home "Up Next" row presents itself: an auto-cycling marquee (default) or a static horizontal strip.\n'
-    '• App icon — pick which launcher icon represents ScreenNext on your home screen. Classic (the original), Vivid (high-contrast film reel), Minimal (clean play button), or Clapperboard.\n'
+    '• App icon — pick which launcher icon represents ScreenDingo on your home screen. Classic (the original), Vivid (high-contrast film reel), Minimal (clean play button), or Clapperboard.\n'
     '• Trakt — link to auto-import history and push ratings.\n'
     '• Stremio addon — mints a private URL you paste into Stremio; your shared watchlist then appears as a catalog inside the Stremio app.\n'
     '• Sign out — clears your session on this device. Your data stays in the household.';
@@ -232,7 +232,7 @@ class _AboutFooter extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
-            'ScreenNext${version.isEmpty ? '' : ' v$version'}',
+            'ScreenDingo${version.isEmpty ? '' : ' v$version'}',
             style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
           const SizedBox(height: 2),
@@ -360,7 +360,7 @@ class _NotificationToggleState extends State<_NotificationToggle> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                  'Disable notifications in Settings > Apps > ScreenNext.'),
+                  'Disable notifications in Settings > Apps > ScreenDingo.'),
             ),
           );
         } else {

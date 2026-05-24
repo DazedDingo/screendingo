@@ -84,6 +84,6 @@ void main() async {
       onboardingDoneProvider
           .overrideWith((_) => OnboardingController(prefs)),
     ],
-    child: const ScreenNextApp(),
+    child: const ScreenDingoApp(),
   ));
 }

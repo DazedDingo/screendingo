@@ -17,7 +17,7 @@ import * as logger from "firebase-functions/logger";
  * into Stremio. Every subsequent request carries the token in its path, which
  * we look up in `/stremioTokens/{token}` to find the household.
  *
- * Scope shipped today: one catalog — "ScreenNext Watchlist" — surfacing the
+ * Scope shipped today: one catalog — "ScreenDingo Watchlist" — surfacing the
  * household's shared watchlist. Recommendations + in-progress catalogs are
  * roadmapped as a follow-up (see ROADMAP.md → Stremio integration track).
  */
@@ -55,14 +55,14 @@ function buildManifest(householdId: string) {
   return {
     id: `dingo.watchnext.${householdId}`,
     version: "1.0.0",
-    name: "ScreenNext Watchlist",
+    name: "ScreenDingo Watchlist",
     description:
-      "Your household's shared ScreenNext watchlist, browsable inside Stremio.",
+      "Your household's shared ScreenDingo watchlist, browsable inside Stremio.",
     resources: ["catalog", "meta"],
     types: ["movie", "series"],
     catalogs: [
-      { type: "movie", id: CATALOG_ID_WATCHLIST, name: "ScreenNext — Movies" },
-      { type: "series", id: CATALOG_ID_WATCHLIST, name: "ScreenNext — Shows" },
+      { type: "movie", id: CATALOG_ID_WATCHLIST, name: "ScreenDingo — Movies" },
+      { type: "series", id: CATALOG_ID_WATCHLIST, name: "ScreenDingo — Shows" },
     ],
     idPrefixes: ["tt"],
     behaviorHints: { configurable: false, configurationRequired: false },
@@ -74,9 +74,9 @@ function buildManifest(householdId: string) {
 const PUBLIC_MANIFEST = {
   id: "dingo.watchnext.unconfigured",
   version: "1.0.0",
-  name: "ScreenNext (configure required)",
+  name: "ScreenDingo (configure required)",
   description:
-    "Open the ScreenNext app → Profile → Stremio addon to get your private install URL.",
+    "Open the ScreenDingo app → Profile → Stremio addon to get your private install URL.",
   resources: [],
   types: [],
   catalogs: [],

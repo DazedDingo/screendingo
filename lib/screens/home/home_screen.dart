@@ -45,11 +45,11 @@ import '../../widgets/help_button.dart';
 import '../../widgets/liquid_segmented_button.dart';
 import '../../widgets/mode_toggle.dart';
 import '../../widgets/search_entry_button.dart';
-import '../../widgets/screennext_logo.dart';
+import '../../widgets/screendingo_logo.dart';
 import '../../widgets/year_range_slider.dart';
 
 const _homeHelp =
-    'ScreenNext picks something to watch that works for both of you.\n\n'
+    'ScreenDingo picks something to watch that works for both of you.\n\n'
     '• Up next — appears above Tonight\'s Pick when an in-progress show has a new episode airing in the next week. Hidden whenever there\'s nothing scheduled.\n'
     '• Tonight\'s Pick — the top scored title. Tap "Let\'s watch this" to open it, or "Not tonight" to skip for this session.\n'
     '• Recommended for you — the rest of the ranked list. Tap any to see details.\n'
@@ -373,7 +373,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const ScreenNextLogo(),
+        title: const ScreenDingoLogo(),
         actions: [
           if (askAiPlacement == AskAiPlacement.icon)
             IconButton(
