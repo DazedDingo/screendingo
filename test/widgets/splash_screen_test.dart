@@ -17,6 +17,9 @@ void main() {
       expect(find.text('Screen'), findsOneWidget);
       expect(find.text('Dingo'), findsOneWidget);
       expect(find.text('by DazedDingo'), findsOneWidget);
+      // The launcher-icon slot above the wordmark — fallbacks to the
+      // shipped Classic icon until the dedicated reel+dingo asset lands.
+      expect(find.byType(Image), findsOneWidget);
     });
 
     testWidgets('tapping before animation finishes navigates to /login',

@@ -143,6 +143,15 @@ class _LogoLockup extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: const [
+        // Icon slot — currently renders the Classic launcher icon (the
+        // film-reel-on-strip badge that already ships in assets/). When
+        // the dedicated ScreenDingo icon (film reel + dingo head) is
+        // commissioned, drop the new PNG at
+        // assets/icons/ic_launcher_classic.png and it'll appear here
+        // automatically. Sized at 96x96 — large enough to read in the
+        // splash without dominating the wordmark below it.
+        _SplashIcon(),
+        SizedBox(height: 14),
         ScreenDingoLogo(fontSize: 52, fontWeight: FontWeight.w800),
         SizedBox(height: 8),
         Text(
@@ -156,6 +165,48 @@ class _LogoLockup extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Icon shown above the wordmark in the splash lockup. Reads from the
+/// shipped launcher-icon asset so a launcher-icon swap automatically
+/// updates the splash. Wrapped in a soft drop-shadow so the icon reads
+/// against the crimson stage backdrop without needing a card.
+class _SplashIcon extends StatelessWidget {
+  const _SplashIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 96,
+      height: 96,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Image.asset(
+          'assets/icons/ic_launcher_classic.png',
+          width: 96,
+          height: 96,
+          fit: BoxFit.cover,
+          // Defensive fallback — never crash the splash if the asset is
+          // missing during a future asset reorganisation.
+          errorBuilder: (_, _, _) => Container(
+            color: const Color(0xFF1A0610),
+            child: const Icon(Icons.movie_filter,
+                size: 48, color: Colors.white70),
+          ),
+        ),
+      ),
     );
   }
 }
