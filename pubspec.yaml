@@ -1,7 +1,7 @@
 name: watchnext
 description: "ScreenDingo — a shared movie & TV recommender for two-person households."
 publish_to: 'none'
-version: 0.12.21+173
+version: 0.12.22+174
 
 environment:
   sdk: ^3.11.4
@@ -56,6 +56,11 @@ dependencies:
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  # Drives integration_test/screenshots_test.dart for the Play Store
+  # screenshot sweep (`screenshots-real-it.yml`). Bundled with the
+  # Flutter SDK so no version pin needed.
+  integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   fake_cloud_firestore: ^4.1.0

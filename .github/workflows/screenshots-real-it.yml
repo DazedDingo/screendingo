@@ -1,0 +1,240 @@
+name: screenshots-real-it (Play Store)
+
+# integration_test-driven screenshot pipeline.
+#
+# Compared to `screenshots-real.yml` (the existing adb-screencap path):
+#   - That workflow captures Home only, at progressive time-beats. Limited
+#     visual variety — every frame is the same Tonight's Pick + rec list.
+#   - This workflow drives navigation between captures so every frame is
+#     a distinct surface: Home, Filters expanded, Title Detail, Library,
+#     Profile. Same seeded Firestore household + auto-sign-in token, so
+#     the data layer is identical to the adb-screencap pipeline. The
+#     only thing that changes is HOW we capture (Flutter binding
+#     screenshot() via `flutter drive` instead of `adb exec-out screencap`).
+#
+# `screenshots-real.yml` is the more reliable Home-only path — kept
+# untouched as the fallback. This workflow is the variety path: prefer
+# it when you need 4-8 distinct screens for a Play Store listing refresh.
+# If the integration_test driver fails to boot or hangs in the emulator,
+# the adb-screencap path is the proven backup.
+#
+# Required secrets (same set as screenshots-real.yml — no new secrets):
+#   GOOGLE_SERVICES_JSON          — RAW JSON of android/app/google-services.json
+#   FIREBASE_SERVICE_ACCOUNT_JSON — RAW JSON of a service account with
+#                                   Firebase Auth Admin + Cloud Datastore User
+#   TMDB_API_KEY                  — production TMDB key for poster + ratings load
+#   TRAKT_CLIENT_ID               — production Trakt client id (only required by
+#                                   the build's startup validation)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: write  # upload artifact
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM
+        # KVM-on-runner permissions; same incantation as screenshots-real.yml.
+        # `reactivecircus/android-emulator-runner` will refuse to boot
+        # otherwise.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore google-services.json from secret
+        # Same RAW (not base64) GOOGLE_SERVICES_JSON secret used by
+        # release.yml + release-aab.yml + screenshots-real.yml.
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+          python3 -c "import json,sys; json.load(open('android/app/google-services.json')); print('google-services.json OK')"
+
+      - name: Generate throwaway debug keystore
+        # Custom-token auth bypasses Google Sign-In's SHA-1 cert check, so
+        # the fresh keystore doesn't have to match the registered debug
+        # SHA. Same trick as screenshots-real.yml.
+        run: |
+          keytool -genkey -v \
+            -keystore android/app/debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Install Cloud Functions deps (for seeder + token mint)
+        working-directory: functions
+        run: npm ci
+
+      - name: Seed screenshot test household into Firestore
+        # Idempotent — re-running overwrites the same docs (`set` semantics
+        # in screenshots_setup.ts). Re-seed every CI run to keep relative
+        # timestamps fresh; the rendered "Watched 2 days ago" / "Rated last
+        # week" copy tracks wall-clock so the seed has to too.
+        working-directory: functions
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT_JSON secret is not set"
+            exit 1
+          fi
+          npx ts-node scripts/screenshots_setup.ts seed
+
+      - name: Mint custom auth token for the seeded household
+        id: mint
+        working-directory: functions
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          TOKEN=$(npx ts-node scripts/screenshots_setup.ts mint-token)
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Token mint produced empty output"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          {
+            echo "token<<EOF_TOKEN"
+            printf '%s' "$TOKEN"
+            echo
+            echo "EOF_TOKEN"
+          } >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Boot emulator + run integration_test driver
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          AUTO_SIGN_IN_TOKEN: ${{ steps.mint.outputs.token }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          # Same boot-reliability tweaks as screenshots-real.yml (proven
+          # over rounds 4 + 6 there).
+          ram-size: 4096M
+          heap-size: 512M
+          disable-spellchecker: true
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none -no-metrics
+          script: |
+            if [ -z "$TMDB_API_KEY" ]; then
+              echo "::error::TMDB_API_KEY secret is not set"; exit 1
+            fi
+            if [ -z "$TRAKT_CLIENT_ID" ]; then
+              echo "::error::TRAKT_CLIENT_ID secret is not set"; exit 1
+            fi
+            if [ -z "$AUTO_SIGN_IN_TOKEN" ]; then
+              echo "::error::AUTO_SIGN_IN_TOKEN was not minted"; exit 1
+            fi
+            mkdir -p screenshots screenshots/it
+            # 16M logcat ring so the device-side test diagnostics + Flutter
+            # stack traces survive a ~3-minute drive run.
+            adb logcat -G 16M
+            # Pre-grant POST_NOTIFICATIONS so the FCM registration path in
+            # `notification_service.dart` doesn't pop the Android 13+
+            # runtime permission prompt mid-capture. No-op on < 13.
+            # Granted to the application id even though the app isn't
+            # installed yet — Android tolerates that and applies the
+            # grant once `flutter drive` installs the APK.
+            adb shell pm grant com.household.watchnext android.permission.POST_NOTIFICATIONS || true
+            # Cold-boot settle window so launcher + system services finish
+            # initialising before we start `flutter drive`. Same 10s grace
+            # as screenshots-real.yml.
+            sleep 10
+            adb logcat -c
+            # Capture diagnostics now in case the drive run hangs and we
+            # need to know what the device thought was happening
+            # pre-launch.
+            adb shell dumpsys window windows > screenshots/dumpsys-windows-pre.txt 2>&1 || true
+            # Run the integration_test via `flutter drive`. This builds
+            # a debug APK + the matching test APK, installs both,
+            # launches the device-side test (screenshots_test.dart),
+            # waits for it to finish, and surfaces the reportData back
+            # to the host driver (test_driver/integration_test.dart)
+            # which writes PNGs to screenshots/it/ on this runner.
+            #
+            # `--no-pub` because we already ran `flutter pub get`.
+            # `--no-dds` because dart dev service occasionally fails to
+            # bind on the GHA runner and adds 30+ seconds of startup
+            # latency — the driver pipeline doesn't use it.
+            #
+            # The dart-defines mirror screenshots-real.yml's debug-build
+            # step: real Firebase via AUTO_SIGN_IN_TOKEN + real TMDB key
+            # so posters + external ratings render in captures.
+            flutter drive \
+              --driver=test_driver/integration_test.dart \
+              --target=integration_test/screenshots_test.dart \
+              -d emulator-5554 \
+              --no-pub \
+              --no-dds \
+              --dart-define=AUTO_SIGN_IN_TOKEN="$AUTO_SIGN_IN_TOKEN" \
+              --dart-define=TMDB_API_KEY="$TMDB_API_KEY" \
+              --dart-define=TRAKT_CLIENT_ID="$TRAKT_CLIENT_ID" \
+              || echo "::warning::flutter drive exited non-zero — partial captures may still be in screenshots/it/"
+            # Move successfully-captured PNGs into the top-level
+            # screenshots/ dir so process_screenshots.py finds them with
+            # the same glob the adb-screencap path uses. The driver writes
+            # to screenshots/it/<beat>.png — copy them up renamed to keep
+            # alphabetical ordering predictable in the artifact.
+            if ls screenshots/it/*.png >/dev/null 2>&1; then
+              for f in screenshots/it/*.png; do
+                cp "$f" "screenshots/$(basename "$f")"
+              done
+            fi
+            # Diagnostics bundle — same shape as screenshots-real.yml.
+            adb logcat -d > screenshots/logcat.txt 2>&1 || true
+            grep -E 'WN_BOOT|WN_ERR|WN_SS|flutter :' screenshots/logcat.txt > screenshots/logcat-app.txt || true
+            adb shell ps -A 2>/dev/null | grep -i watchnext > screenshots/app-process.txt || true
+            adb shell dumpsys activity activities 2>/dev/null | head -200 > screenshots/dumpsys.txt || true
+            ls -la screenshots/ screenshots/it/ || true
+            file screenshots/*.png || true
+
+      - name: Crop captures to Play-Store-ready 1080×1920 (9:16)
+        # Pixel 7 emulator captures at 1080×2400; Play Console rejects
+        # anything outside [9:16, 16:9]. Same crop path as
+        # screenshots-real.yml.
+        if: always()
+        run: |
+          if ls screenshots/*.png >/dev/null 2>&1; then
+            python3 -m pip install --quiet Pillow
+            python3 scripts/process_screenshots.py screenshots/ --out screenshots/processed/ || \
+              echo "::warning::cropper failed — raw captures still in artifact"
+          else
+            echo "::warning::no PNGs to crop"
+          fi
+
+      - name: Upload screenshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screendingo-screenshots-real-it
+          path: screenshots/
+          retention-days: 14
+          if-no-files-found: ignore

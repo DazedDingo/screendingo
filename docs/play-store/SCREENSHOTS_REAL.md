@@ -123,3 +123,69 @@ Per CI run:
 
 The token mint itself is free (Firebase Auth's `createCustomToken` is
 self-signed via the service account, no network round-trip).
+
+## Variant: integration_test driver (`screenshots-real-it.yml`)
+
+`screenshots-real.yml` captures Home only — every frame is the same
+Tonight's Pick + rec list. For Play Store listings that need 4–8
+distinct surfaces we have a second workflow,
+`screenshots-real-it.yml`, that drives an integration_test through the
+running app between captures.
+
+**What it captures**:
+
+1. `01-home.png` — Home with Tonight's Pick + Recommended-for-you fully rendered
+2. `02-home-filters.png` — Home with the "Filter recommendations"
+   expansion panel open (showing the genre / sub-topic / runtime / year /
+   awards / curator knobs)
+3. `03-title-detail.png` — Title Detail for Tonight's Pick (tapped via
+   "Let's watch this"), with poster + AI blurb + external ratings +
+   action row visible
+4. `04-library.png` — Library tab (Saved sub-tab default), watchlist
+   rows visible
+5. `05-profile.png` — Profile tab (lower priority — useful as a
+   "preferences page" surface)
+
+**When to prefer it over `screenshots-real.yml`**:
+
+- Need variety for a Play Store listing refresh — same data set, but
+  the app navigates between surfaces between captures.
+- Want to validate a UI change end-to-end on real Firebase + TMDB
+  without manually clicking through on a device.
+
+**When to fall back to `screenshots-real.yml`**:
+
+- The integration_test driver hangs or fails to boot in the emulator.
+  The adb-screencap path is the proven Home-only fallback.
+- You only need a refreshed Home screenshot (e.g. after a Tonight's
+  Pick logic change) — the adb pipeline is faster + simpler for that
+  case.
+
+**How to trigger**:
+
+```bash
+gh workflow run "screenshots-real-it (Play Store)" -R DazedDingo/screendingo
+```
+
+Or via the GitHub UI: Repo → Actions → "screenshots-real-it (Play
+Store)" → "Run workflow". No inputs required. Run takes ~7–10 minutes
+(longer than the adb path because `flutter drive` builds both an app
+APK and a test APK and runs the device-side test interactively).
+
+Artifact name is `screendingo-screenshots-real-it`. Same crop pipeline
+as the adb path — final Play-safe PNGs land under `processed/` inside
+the artifact at 1080×1920.
+
+**Required secrets**: same set as `screenshots-real.yml` —
+`GOOGLE_SERVICES_JSON`, `FIREBASE_SERVICE_ACCOUNT_JSON`,
+`TMDB_API_KEY`, `TRAKT_CLIENT_ID`. No new secrets to provision.
+
+**How the driver works**: the device-side test
+(`integration_test/screenshots_test.dart`) boots `app.main()`, polls
+for the seeded Home to render, then navigates between surfaces and
+calls `binding.takeScreenshot('beat-name')` between each. The bytes
+travel up the test driver channel to the host runner
+(`test_driver/integration_test.dart`) which writes PNGs under
+`screenshots/it/<beat>.png`. The workflow then copies them up to
+`screenshots/` so `process_screenshots.py` finds them with the same
+glob the adb path uses.
