@@ -120,7 +120,7 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
-          profile: pixel_8
+          profile: pixel_7  # Pixel 8 not in the AVD device catalog yet; Pixel 7 is the same 1080×2400 screen
           # Headless boot — no UI needed on the CI runner.
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none
           disable-animations: true
