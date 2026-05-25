@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.19 (2026-05-22)
+
+- **screenshots-real.yml: gate ANR-dismiss tap on dialog presence.** Round 9 (v0.12.18) fired `input tap 540 1290` on every screencap — when no ANR dialog was on screen, the tap landed on the Tonight's Pick card and navigated us to a half-loaded TitleDetail (collateral damage in frame 02-at-45s). Fix: only tap when `dumpsys window windows | grep -q AppNotRespondingDialog` returns a match. No dialog → no tap → Home stays put.
+
 ## 0.12.18 (2026-05-22)
 
 - **screenshots-real.yml: dismiss ANR via input-tap, drop hide_error_dialogs.** Round 7 (run 26414357764) exposed the real failure mode of `hide_error_dialogs=1` from 0.12.14: it hides the dialog AND Android silently KILLS the unresponsive app, dropping the screen back to the launcher (the populated Home grid screenshots were the Pixel Launcher, not us). Fix: revert hide_error_dialogs, let the ANR dialog appear, then `input tap 540 1290` to hit "Wait" — keeps the app alive AND dismisses the overlay. `KEYCODE_BACK` retained as fallback for non-ANR dialogs. Captures pushed back to 30/45/60/75/90s post-launch so the post-sign-in fanout (11 Firestore listeners + 19 TMDB images + 12 OMDb CFs) finishes before screencap.
