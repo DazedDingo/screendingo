@@ -36,38 +36,59 @@ from pathlib import Path
 
 from PIL import Image
 
-# Pixel 7 emulator chrome heights — fixed values, both screenshots.yml +
-# screenshots-real.yml pin `profile: pixel_7` so dimensions are
-# deterministic. Conservative — leave a few px of slop so we don't clip
-# into the AppBar by accident.
+# Pixel 7 emulator chrome heights for adb screencap (1080×2400 full
+# system framebuffer including system status bar + gesture nav). Fixed
+# values, both screenshots.yml + screenshots-real.yml pin
+# `profile: pixel_7` so dimensions are deterministic. Conservative —
+# leave a few px of slop so we don't clip into the AppBar by accident.
 STATUS_BAR_PX = 88
 NAV_PILL_PX = 60
 
 EXPECTED_W = 1080
-EXPECTED_H = 2400
-
 PLAY_W = 1080
-PLAY_H = 1920  # 9:16
-
-LOOSE_W = 1080
-LOOSE_H = EXPECTED_H - STATUS_BAR_PX - NAV_PILL_PX  # 2252
+PLAY_H = 1920  # 9:16 ratio Play Console enforces
 
 
 def crop_one(src: Path, out_dir: Path) -> bool:
-    """Process one PNG. Returns True on success, False on skip."""
+    """Process one PNG. Returns True on success, False on skip.
+
+    Supports two input shapes both produced by our pipelines:
+      - 1080×2400: raw `adb screencap` from screenshots-real.yml — full
+                   system framebuffer including system status bar +
+                   gesture nav pill. Trim both.
+      - 1080×N (N<2400): integration_test `binding.takeScreenshot()`
+                   from screenshots-real-it.yml — Flutter surface only,
+                   no status bar (~63 px lopped) and may also exclude
+                   the nav pill. Just bottom-crop to PLAY_H.
+
+    Anything else (different width, height < PLAY_H) is skipped.
+    """
     img = Image.open(src)
-    if img.size != (EXPECTED_W, EXPECTED_H):
+    w, h = img.size
+    if w != EXPECTED_W:
         print(
-            f"  SKIP {src.name} — expected {EXPECTED_W}×{EXPECTED_H}, "
-            f"got {img.size[0]}×{img.size[1]}",
+            f"  SKIP {src.name} — expected width {EXPECTED_W}, got {w}",
+            file=sys.stderr,
+        )
+        return False
+    if h < PLAY_H:
+        print(
+            f"  SKIP {src.name} — height {h} < {PLAY_H} (can't crop up to 9:16)",
             file=sys.stderr,
         )
         return False
 
-    # Loose crop: chrome only.
-    loose = img.crop((0, STATUS_BAR_PX, EXPECTED_W, EXPECTED_H - NAV_PILL_PX))
-    assert loose.size == (LOOSE_W, LOOSE_H), loose.size
-    loose_path = out_dir / f"{src.stem}-1080x2252.png"
+    # Determine the chrome-trimmed "loose" rectangle. For adb screencap
+    # (1080×2400) lop both chromes; for integration_test surface
+    # captures (1080×~2337) the status bar is already absent, so only
+    # lop the nav pill if there's enough headroom.
+    if h >= 2400:
+        loose = img.crop((0, STATUS_BAR_PX, w, h - NAV_PILL_PX))
+    elif h > PLAY_H + NAV_PILL_PX:
+        loose = img.crop((0, 0, w, h - NAV_PILL_PX))
+    else:
+        loose = img  # too tight to lop anything; play crop will handle it
+    loose_path = out_dir / f"{src.stem}-{loose.size[0]}x{loose.size[1]}.png"
     loose.save(loose_path, format="PNG", optimize=True)
 
     # Play-safe crop: take top PLAY_H from the chrome-trimmed image. Keeps
@@ -78,7 +99,7 @@ def crop_one(src: Path, out_dir: Path) -> bool:
     play_path = out_dir / f"{src.stem}-1080x1920.png"
     play.save(play_path, format="PNG", optimize=True)
 
-    print(f"  OK  {src.name} → {play_path.name} + {loose_path.name}")
+    print(f"  OK  {src.name} ({w}×{h}) → {play_path.name} + {loose_path.name}")
     return True
 
 

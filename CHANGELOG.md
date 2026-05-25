@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.25 (2026-05-22)
+
+- **`process_screenshots.py`: support integration_test surface captures (1080×N).** The cropper was hardcoded to expect 1080×2400 (adb screencap full framebuffer) and SKIPped everything else — integration_test produces 1080×2337 because `binding.takeScreenshot()` captures the Flutter surface only, no status bar. Generalised: accept any 1080×N input where N ≥ 1920, auto-decide chrome trim by source height (full system framebuffer at 2400 trims both top + bottom; integration_test surface at <2400 just trims the nav pill if there's headroom). v0.12.24 produced 5 distinct populated screens (Home / Filters / TitleDetail / Library / Profile) — all crop cleanly to 1080×1920 with this fix.
+
 ## 0.12.24 (2026-05-22)
 
 - **screenshots-real-it.yml: single-line `flutter drive` invocation.** v0.12.23 run failed with `Target file "\" not found.` — same fresh-`sh -c`-per-line gotcha as the if-then-fi block, applied to the backslash-continued `flutter drive` command. Each backslash-terminated line went to its own shell; the runner only saw `flutter drive \` (with literal backslash → "target file is \"). One-lined the whole `flutter drive` command + all dart-defines onto a single line.
