@@ -157,16 +157,20 @@ jobs:
             # Diagnostics — bundled with the screenshots so we can see
             # what the app process actually did.
             adb logcat -d > screenshots/logcat.txt 2>&1 || true
-            adb shell ps -A 2>/dev/null | grep -i watchnext \
-              > screenshots/app-process.txt || true
-            adb shell dumpsys activity activities 2>/dev/null \
-              | head -200 > screenshots/dumpsys.txt || true
+            adb shell ps -A 2>/dev/null | grep -i watchnext > screenshots/app-process.txt || true
+            adb shell dumpsys activity activities 2>/dev/null | head -200 > screenshots/dumpsys.txt || true
             ls -la screenshots/
             file screenshots/*.png
 
       - name: Upload screenshot artifact
+        # Run even if the script step fails — the screenshots + logcat
+        # are the entire reason for this workflow. Without `if: always()`
+        # one shell failure inside the emulator script means we lose
+        # both the captured frames and the diagnostics.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: screendingo-screenshots-phase1
           path: screenshots/
           retention-days: 14
+          if-no-files-found: ignore
