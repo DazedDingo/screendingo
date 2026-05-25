@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.21 (2026-05-22)
+
+- **screenshots-real.yml: ANR grep finally matches.** Round 11 (v0.12.20) captured `dumpsys window` to the artifact for debugging. The actual ANR dialog window is named `Application Not Responding: com.household.watchnext` — earlier patterns missed because of the **space** in "Not Responding" vs "NotResponding". Final pattern: `grep -qiE "application not responding"`. Verified against the captured dumpsys before pushing.
+
 ## 0.12.20 (2026-05-22)
 
 - **screenshots-real.yml: broaden ANR-detection grep + dump windows for debugging.** Round 10 (v0.12.19) showed the ANR dialog still overlaid the captures — the `AppNotRespondingDialog|NotRespondingDialog` pattern didn't match the actual window name on Android 14. Broadened to `notresponding|apperror|isn.t responding|baseerrordialog` (case-insensitive). Also captures `dumpsys window` output to the artifact (pre-launch + at t=30s) so future tuning can grep the real window names without another guess-and-check round.

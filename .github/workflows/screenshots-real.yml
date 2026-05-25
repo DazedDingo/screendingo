@@ -260,18 +260,18 @@ jobs:
             # `sh -c` so shell functions / `if-then-fi` blocks would
             # be cleaner but don't persist. The `(cmd && cmd) || true`
             # pattern is the inline equivalent.
-            # Capture dumpsys window for debugging — round 10 showed
-            # the grep didn't match the actual ANR window name on
-            # Android 14. Broader pattern: case-insensitive + matches
-            # any of NotResponding / AppError / app's package id in a
-            # dialog context. Dumps written to artifact too so future
-            # tuning can grep the real window names.
+            # ANR dialog window name on Android 14 is literally
+            # "Application Not Responding: com.household.watchnext"
+            # (confirmed by dumpsys captured in round 11). Earlier
+            # grep patterns missed because of the space in "Not
+            # Responding" vs "NotResponding". Dumps still captured to
+            # artifact for future debugging.
             adb shell dumpsys window windows > screenshots/dumpsys-windows-pre.txt 2>&1 || true
-            sleep 30; (adb shell dumpsys window 2>/dev/null | grep -qiE "notresponding|apperror|isn.t responding|baseerrordialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/01-at-30s.png; adb shell dumpsys window > screenshots/dumpsys-windows-at-30s.txt 2>&1 || true
-            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "notresponding|apperror|isn.t responding|baseerrordialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/02-at-45s.png
-            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "notresponding|apperror|isn.t responding|baseerrordialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/03-at-60s.png
-            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "notresponding|apperror|isn.t responding|baseerrordialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/04-at-75s.png
-            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "notresponding|apperror|isn.t responding|baseerrordialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/05-at-90s.png
+            sleep 30; (adb shell dumpsys window 2>/dev/null | grep -qiE "application not responding" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/01-at-30s.png; adb shell dumpsys window > screenshots/dumpsys-windows-at-30s.txt 2>&1 || true
+            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "application not responding" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/02-at-45s.png
+            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "application not responding" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/03-at-60s.png
+            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "application not responding" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/04-at-75s.png
+            sleep 15; (adb shell dumpsys window 2>/dev/null | grep -qiE "application not responding" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/05-at-90s.png
             # Diagnostics bundle — same shape as screenshots.yml so the
             # debugging muscle memory transfers between the two
             # pipelines.
