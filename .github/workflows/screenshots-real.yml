@@ -206,21 +206,15 @@ jobs:
             #    its ANR can't overlay our app if it isn't running.
             #    pm disable-user is reversible and contained to user 0.
             adb shell pm grant com.household.watchnext android.permission.POST_NOTIFICATIONS || true
-            # 3. Hide all ANR / crash / app-not-responding dialogs at the
-            #    OS level. Both the Pixel Launcher's cold-boot ANR (seen
-            #    in rounds 1+2) AND our app's post-sign-in ANR (seen in
-            #    round 2: 11 Firestore listeners + 19 TMDB image loads
-            #    + 12 OMDb CF calls all firing concurrently saturates
-            #    the single-core emulator's main thread for >5s) are
-            #    purely cosmetic dialogs on this emulator — the
-            #    underlying processes keep running. hide_error_dialogs
-            #    suppresses the dialogs system-wide; everything still
-            #    works behind them. Round 3 tried disabling the
-            #    launcher entirely (pm disable-user) but that broke
-            #    Flutter's activity-alias lifecycle in a more subtle
-            #    way (main never reached runApp, blank screens). Just
-            #    hide the dialogs and let the launcher run.
-            adb shell settings put global hide_error_dialogs 1 || true
+            # NOTE: hide_error_dialogs=1 was tried in 0.12.14-0.12.16 +
+            # turned out to be ACTIVELY HARMFUL. It hides the user-
+            # visible dialog but Android still treats the app as
+            # ANR-ing and KILLS the process silently, dropping the
+            # screen back to the launcher (round 7: blank "home grid"
+            # screenshots, no WN_BOOT auto-sign-in logged). The
+            # correct fix is to let the ANR dialog appear and then
+            # tap "Wait" via input — that keeps the app alive AND
+            # dismisses the overlay. Done per-screencap below.
             # Cold-boot settle time — kept the 10s grace from round 1
             # even though the launcher's now disabled (some system
             # services still finalise indexing in the same window).
@@ -247,17 +241,25 @@ jobs:
             # the app should be settled on Home with the seeded household
             # rendered. The later snapshots give Firestore listeners and
             # TMDB poster loads time to land.
-            # Before each screencap, send KEYCODE_BACK to dismiss any
-            # system dialog that slipped past hide_error_dialogs.
-            # Idempotent + no-op when there's no dialog. Inlined per
-            # line because the GHA emulator runner pipes each line to
-            # a fresh `sh -c` — shell functions don't carry over
-            # between lines (round 3 hit this; cap() not found).
-            sleep 3;  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/01-at-5s.png
-            sleep 10; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/02-at-15s.png
-            sleep 15; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/03-at-30s.png
-            sleep 15; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/04-at-45s.png
-            sleep 15; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/05-at-60s.png
+            # Before each screencap, dismiss any ANR dialog via
+            # input-tap on the "Wait" button (round 2 showed it at
+            # approximately (540, 1290) in the 1080x2400 frame —
+            # second item in the modal, centered horizontally). Tap
+            # "Wait" → app keeps running, dialog goes away. KEYCODE_BACK
+            # is fallback in case the dialog is non-ANR (notification
+            # permission has different layout). Both inlined per line —
+            # GHA runner pipes each line to a fresh `sh -c` so shell
+            # functions don't carry over (round 3 hit this).
+            # Captures pushed back to 30s minimum so the app's post-
+            # sign-in fanout (11 Firestore listeners + 19 TMDB images +
+            # 12 OMDb CF calls) has time to settle BEFORE we screencap.
+            # ANR typically fires within 5-10s of sign-in; by 30s the
+            # main thread is quiescent on a freshly-tapped-Wait app.
+            sleep 30; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/01-at-30s.png
+            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/02-at-45s.png
+            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/03-at-60s.png
+            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/04-at-75s.png
+            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/05-at-90s.png
             # Diagnostics bundle — same shape as screenshots.yml so the
             # debugging muscle memory transfers between the two
             # pipelines.
