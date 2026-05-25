@@ -144,15 +144,15 @@ jobs:
           emulator-boot-timeout: 600
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none -no-metrics
           script: |
-            if [ -z "$TMDB_API_KEY" ]; then
-              echo "::error::TMDB_API_KEY secret is not set"; exit 1
-            fi
-            if [ -z "$TRAKT_CLIENT_ID" ]; then
-              echo "::error::TRAKT_CLIENT_ID secret is not set"; exit 1
-            fi
-            if [ -z "$AUTO_SIGN_IN_TOKEN" ]; then
-              echo "::error::AUTO_SIGN_IN_TOKEN was not minted"; exit 1
-            fi
+            # NOTE: reactivecircus emulator-runner pipes each script
+            # line to a fresh `sh -c` — multi-line `if-then-fi` blocks
+            # break with "Syntax error: end of file unexpected" (the
+            # `then` and `fi` end up in separate shells). Use one-liner
+            # `[ test ] || { fallback; }` instead. Same gotcha hit the
+            # adb-screencap path in round 3 of screenshots-real.yml.
+            [ -n "$TMDB_API_KEY" ] || { echo "::error::TMDB_API_KEY secret is not set"; exit 1; }
+            [ -n "$TRAKT_CLIENT_ID" ] || { echo "::error::TRAKT_CLIENT_ID secret is not set"; exit 1; }
+            [ -n "$AUTO_SIGN_IN_TOKEN" ] || { echo "::error::AUTO_SIGN_IN_TOKEN was not minted"; exit 1; }
             mkdir -p screenshots screenshots/it
             # 16M logcat ring so the device-side test diagnostics + Flutter
             # stack traces survive a ~3-minute drive run.
@@ -203,11 +203,7 @@ jobs:
             # the same glob the adb-screencap path uses. The driver writes
             # to screenshots/it/<beat>.png — copy them up renamed to keep
             # alphabetical ordering predictable in the artifact.
-            if ls screenshots/it/*.png >/dev/null 2>&1; then
-              for f in screenshots/it/*.png; do
-                cp "$f" "screenshots/$(basename "$f")"
-              done
-            fi
+            ls screenshots/it/*.png >/dev/null 2>&1 && for f in screenshots/it/*.png; do cp "$f" "screenshots/$(basename "$f")"; done || true
             # Diagnostics bundle — same shape as screenshots-real.yml.
             adb logcat -d > screenshots/logcat.txt 2>&1 || true
             grep -E 'WN_BOOT|WN_ERR|WN_SS|flutter :' screenshots/logcat.txt > screenshots/logcat-app.txt || true
