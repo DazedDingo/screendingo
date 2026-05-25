@@ -241,25 +241,30 @@ jobs:
             # the app should be settled on Home with the seeded household
             # rendered. The later snapshots give Firestore listeners and
             # TMDB poster loads time to land.
-            # Before each screencap, dismiss any ANR dialog via
-            # input-tap on the "Wait" button (round 2 showed it at
-            # approximately (540, 1290) in the 1080x2400 frame —
-            # second item in the modal, centered horizontally). Tap
-            # "Wait" → app keeps running, dialog goes away. KEYCODE_BACK
-            # is fallback in case the dialog is non-ANR (notification
-            # permission has different layout). Both inlined per line —
-            # GHA runner pipes each line to a fresh `sh -c` so shell
-            # functions don't carry over (round 3 hit this).
-            # Captures pushed back to 30s minimum so the app's post-
-            # sign-in fanout (11 Firestore listeners + 19 TMDB images +
-            # 12 OMDb CF calls) has time to settle BEFORE we screencap.
-            # ANR typically fires within 5-10s of sign-in; by 30s the
-            # main thread is quiescent on a freshly-tapped-Wait app.
-            sleep 30; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/01-at-30s.png
-            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/02-at-45s.png
-            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/03-at-60s.png
-            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/04-at-75s.png
-            sleep 15; adb shell input tap 540 1290 >/dev/null 2>&1 || true; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/05-at-90s.png
+            # Before each screencap, conditionally dismiss an ANR
+            # dialog ONLY when one is actually on screen. Round 9
+            # (v0.12.18) hit the tap-Wait coordinates (540, 1290) on
+            # EVERY screencap, and when there was no dialog the tap
+            # landed on the Tonight's Pick card and navigated us to
+            # a half-loaded TitleDetail (frame 02-at-45s).
+            #
+            # Detect via `dumpsys window windows` — the ANR dialog
+            # registers as a system-ui window named
+            # `AppNotRespondingDialog$Window` or `NotRespondingDialog$Window`
+            # while it's visible. grep -q is silent + sets exit code,
+            # so the conditional chain only fires when a match exists.
+            # 1s sleep after the tap lets the dialog animate out before
+            # screencap.
+            #
+            # Inlined per line: GHA runner pipes each line to a fresh
+            # `sh -c` so shell functions / `if-then-fi` blocks would
+            # be cleaner but don't persist. The `(cmd && cmd) || true`
+            # pattern is the inline equivalent.
+            sleep 30; (adb shell dumpsys window windows 2>/dev/null | grep -q "AppNotRespondingDialog\|NotRespondingDialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/01-at-30s.png
+            sleep 15; (adb shell dumpsys window windows 2>/dev/null | grep -q "AppNotRespondingDialog\|NotRespondingDialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/02-at-45s.png
+            sleep 15; (adb shell dumpsys window windows 2>/dev/null | grep -q "AppNotRespondingDialog\|NotRespondingDialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/03-at-60s.png
+            sleep 15; (adb shell dumpsys window windows 2>/dev/null | grep -q "AppNotRespondingDialog\|NotRespondingDialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/04-at-75s.png
+            sleep 15; (adb shell dumpsys window windows 2>/dev/null | grep -q "AppNotRespondingDialog\|NotRespondingDialog" && adb shell input tap 540 1290 && sleep 1) || true; adb exec-out screencap -p > screenshots/05-at-90s.png
             # Diagnostics bundle — same shape as screenshots.yml so the
             # debugging muscle memory transfers between the two
             # pipelines.
