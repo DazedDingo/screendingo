@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../demo/demo_mode.dart';
 import '../../models/recommendation.dart';
 import '../../providers/ask_ai_placement_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -202,7 +203,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // household id resolves. Without this the row-level IMDb chip stays
     // blank until the user pulls to refresh, which feels like the feature
     // isn't working at all on fresh installs.
-    if (!_imdbBackfillStarted) {
+    //
+    // Demo mode skip: RecommendationsService's constructor calls
+    // FirebaseFirestore.instance which throws [core/no-app] when Firebase
+    // init was skipped (kDemoMode). The backfill paths are pure server-
+    // side data hygiene anyway — meaningless against the curated demo
+    // rec set.
+    if (!kDemoMode && !_imdbBackfillStarted) {
       final hh = ref.watch(householdIdProvider).value;
       if (hh != null) {
         _imdbBackfillStarted = true;
@@ -217,7 +224,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // filters (Sci-Fi + War, etc.) pick up cross-genre titles TMDB tags
     // narrowly. `keywords_fetched=true` is sticky, so this only does real
     // work on new/unprocessed docs after the first pass.
-    if (!_keywordsBackfillStarted) {
+    //
+    // Same Firebase-skip reason as the imdb backfill above.
+    if (!kDemoMode && !_keywordsBackfillStarted) {
       final hh = ref.watch(householdIdProvider).value;
       if (hh != null) {
         _keywordsBackfillStarted = true;
