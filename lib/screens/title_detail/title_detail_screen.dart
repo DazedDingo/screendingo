@@ -572,7 +572,7 @@ class _TitleDetailScreenState extends ConsumerState<TitleDetailScreen> {
     final ratings = ratingsByTarget[_entryId] ?? const <Rating>[];
     final watchlist = watchlistAsync.value ?? const [];
     final mode = ref.watch(viewModeProvider);
-    final uid = ref.watch(authStateProvider).value?.uid;
+    final uid = ref.watch(currentUidProvider);
     final mt = widget.mediaType == 'movie' ? 'movie' : 'tv';
     // Shared copy is visible to both; my solo copy is visible only to me, in Solo mode.
     final sharedEntry = watchlist.cast<WatchlistItem?>().firstWhere(
@@ -2050,7 +2050,7 @@ class _SeasonBodyState extends ConsumerState<_SeasonBody> {
         ? const AsyncValue<List<Episode>>.data([])
         : ref.watch(episodesProvider((householdId, widget.entryId)));
     final ratings = ref.watch(ratingsProvider).value ?? const <Rating>[];
-    final uid = ref.watch(authStateProvider).value?.uid;
+    final uid = ref.watch(currentUidProvider);
 
     return seasonAsync.when(
       loading: () => const Padding(
