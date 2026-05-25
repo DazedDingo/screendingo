@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.17 (2026-05-22)
+
+- **screenshots-real.yml: emulator boot-reliability config.** Rounds 4 + 6 both timed out with "Timeout waiting for emulator to boot" / "device 'emulator-5554' not found" — a known flakiness mode of `reactivecircus/android-emulator-runner@v2` on GHA ubuntu-latest where the emulator process simply doesn't come up. Mitigations: bump `ram-size: 4096M` + `heap-size: 512M` (default 1536M is tight and contributes to boot stalls), `disable-spellchecker: true` (trims background work competing with boot on single-core VMs), `emulator-boot-timeout: 600` (explicit), `-no-metrics` (skips the boot-time telemetry handshake).
+
 ## 0.12.16 (2026-05-22)
 
 - **screenshots-real.yml: revert launcher-disable, restore monkey launch.** Round 4 (run 26413267582) with launcher disabled + `am start -n .../LauncherClassic` left Flutter's activity lifecycle confused — main never reached runApp ("Activity top resumed state loss timeout" / "no window has focus" in logcat). Roundtrip: re-enable Pixel Launcher (its ANR dialog is now suppressed by `hide_error_dialogs=1` from 0.12.14, so it's harmless) and go back to `monkey -p ... LAUNCHER 1` which routes through the launcher's intent resolver the way round 2's successful run did. Launcher-disable was overcautious — the dialog suppression was enough.

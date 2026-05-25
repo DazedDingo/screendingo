@@ -168,8 +168,21 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_7
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none
+          # Boot-reliability tweaks — rounds 4 + 6 timed out with
+          # "Timeout waiting for emulator to boot" / "device not found"
+          # (emulator process never came up on the runner). Both are
+          # known flakiness modes for this action on GHA ubuntu-latest.
+          # Bumping RAM/heap reduces the memory-pressure boot stall;
+          # disable-spellchecker + no-metrics trims background work
+          # that competes with the boot sequence on a single-core CI
+          # VM. boot-timeout is the action's own watchdog — default
+          # 600s, set explicit so we can extend without confusion.
+          ram-size: 4096M
+          heap-size: 512M
+          disable-spellchecker: true
           disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none -no-metrics
           script: |
             mkdir -p screenshots
             # Same 16M logcat ring as screenshots.yml so the post-run
