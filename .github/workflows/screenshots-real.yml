@@ -15,22 +15,26 @@ name: screenshots-real (Play Store)
 #   - Real Cloud Functions + Firestore reads — exercises every code path
 #     the production app exercises, end-to-end
 #
-# Required secrets:
-#   GOOGLE_SERVICES_JSON_B64    — base64 of android/app/google-services.json
-#                                 from Firebase console
-#   FIREBASE_SERVICE_ACCOUNT_JSON — raw JSON contents of a service account
-#                                 with "Firebase Auth Admin" + Firestore
-#                                 write permissions; minted via
-#                                 console.firebase.google.com → Project
-#                                 Settings → Service accounts
-#   TMDB_API_KEY                — same key the app uses in production
-#   TRAKT_CLIENT_ID             — same client id the app uses in production
-#                                 (only required by the build, not by any
-#                                 read path the screenshot run exercises)
-#
-# Run `firebase functions:secrets:access FIREBASE_SERVICE_ACCOUNT_JSON`
-# to verify the secret has no trailing newline before kicking off the
-# first run; same trailing-`\n` rule as gotcha 35b in CLAUDE.md.
+# Required secrets (only FIREBASE_SERVICE_ACCOUNT_JSON is new — the other
+# three are reused from the existing release.yml / release-aab.yml flows):
+#   GOOGLE_SERVICES_JSON          — RAW (not base64) contents of
+#                                   android/app/google-services.json from
+#                                   Firebase console. Already used by the
+#                                   APK + AAB release workflows.
+#   FIREBASE_SERVICE_ACCOUNT_JSON — NEW. Raw JSON contents of a service
+#                                   account with "Firebase Auth Admin" +
+#                                   "Cloud Datastore User" (or higher);
+#                                   minted via console.firebase.google.com
+#                                   → Project Settings → Service accounts.
+#                                   No trailing newline (same rule as
+#                                   gotcha 35b in CLAUDE.md — JSON.parse
+#                                   tolerates it, but cleaner is safer).
+#   TMDB_API_KEY                  — same key the app uses in production.
+#   TRAKT_CLIENT_ID               — same client id the app uses in
+#                                   production. Only required by the
+#                                   build's startup validation, not by
+#                                   any read path the screenshot run
+#                                   exercises.
 
 on:
   workflow_dispatch:
@@ -69,17 +73,13 @@ jobs:
           cache: true
 
       - name: Restore google-services.json from secret
-        env:
-          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        # Reuses the same RAW (not base64) GOOGLE_SERVICES_JSON secret
+        # that release.yml + release-aab.yml use — see file header.
         run: |
-          if [ -z "$GOOGLE_SERVICES_JSON_B64" ]; then
-            echo "::error::GOOGLE_SERVICES_JSON_B64 secret is not set"
-            exit 1
-          fi
-          echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
-          # Cheap sanity check — if the decode produced something that
-          # isn't valid JSON, fail fast with a clear message rather than
-          # letting the Android build choke 5 minutes later.
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+          # Cheap sanity check — if the secret was empty or malformed,
+          # fail fast with a clear message rather than letting the
+          # Android build choke 5 minutes later.
           python3 -c "import json,sys; json.load(open('android/app/google-services.json')); print('google-services.json OK')"
 
       - name: Generate throwaway debug keystore
