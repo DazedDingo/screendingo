@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -17,6 +18,17 @@ import 'providers/onboarding_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/up_next_style_provider.dart';
 import 'services/home_widget_service.dart';
+
+/// Optional auto-sign-in token, baked into the build via
+/// `--dart-define=AUTO_SIGN_IN_TOKEN=...`. Used by the screenshots-real
+/// CI workflow to skip Google Sign-In UI on a freshly-booted emulator:
+/// firebase-admin mints a short-lived custom token server-side, the
+/// workflow bakes it into the debug APK, and `main()` exchanges it for
+/// a real user session before the router decides where to land. Empty
+/// in normal builds → no auto-sign-in → router falls through to /login
+/// exactly as before.
+const String _kAutoSignInToken =
+    String.fromEnvironment('AUTO_SIGN_IN_TOKEN', defaultValue: '');
 
 /// Background FCM handler. Runs in its own isolate when a data message
 /// arrives while the app is killed/backgrounded. MUST be a top-level
@@ -129,6 +141,25 @@ void main() async {
     } catch (e, st) {
       developer.log('App Check activation failed (non-fatal)',
           name: 'wn.appCheck', error: e, stackTrace: st);
+    }
+
+    // Auto-sign-in for the screenshots-real CI workflow. The token is
+    // minted by firebase-admin in CI against a long-lived
+    // "screenshot test household" uid and baked into the build as a
+    // dart-define. We swap it for a real Firebase session here so the
+    // app boots straight into Home with the pre-seeded Firestore data,
+    // bypassing the Google Sign-In UI that GHA emulators can't drive.
+    // Empty token → no auto-sign-in → router behaves exactly as it does
+    // for a normal release build.
+    if (_kAutoSignInToken.isNotEmpty) {
+      try {
+        await FirebaseAuth.instance.signInWithCustomToken(_kAutoSignInToken);
+        debugPrint('WN_BOOT auto-signed-in via custom token');
+      } catch (e, st) {
+        debugPrint('WN_BOOT custom token sign-in failed: $e');
+        developer.log('Auto sign-in failed (non-fatal)',
+            name: 'wn.autoSignIn', error: e, stackTrace: st);
+      }
     }
 
     // Register the background FCM handler BEFORE the app starts listening
