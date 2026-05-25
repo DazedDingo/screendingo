@@ -146,8 +146,7 @@ jobs:
             # the same path the user's home-screen tap would, avoiding
             # the activity-alias resolution quirk that may have caused
             # the first ANR.
-            adb shell monkey -p com.household.watchnext \
-              -c android.intent.category.LAUNCHER 1
+            adb shell monkey -p com.household.watchnext -c android.intent.category.LAUNCHER 1
             # Progressive snapshots so we can see splash → /login →
             # /home transitions if the app boots correctly, or pinpoint
             # where it stalls if not.
