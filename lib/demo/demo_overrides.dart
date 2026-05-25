@@ -12,6 +12,7 @@
 /// programmatically if a screen needs a specific filter state.
 library;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_provider.dart';
@@ -40,6 +41,19 @@ List<Override> get demoOverrides => [
       // Auth + household — synthetic IDs so downstream providers don't
       // gate-out on null. The router (app.dart) has a separate kDemoMode
       // check that bypasses the FirebaseAuth.currentUser direct call.
+      //
+      // authStateProvider override is critical: its original closure
+      // builds an AuthService and calls .authStateChanges, which touches
+      // FirebaseAuth.instance and throws [core/no-app] when Firebase
+      // hasn't been initialised. Anything that watches authStateProvider
+      // (e.g. notInterestedKeysProvider:106 reads .value?.uid) would
+      // crash the build. The User class is sealed so we can't fabricate
+      // a non-null user; null is fine because every caller that needs
+      // a uid should use currentUidProvider (already overridden) and
+      // the few that still read authStateProvider.value?.uid just
+      // gracefully get null + no-op.
+      authStateProvider
+          .overrideWith((_) => Stream<User?>.value(null)),
       currentUidProvider.overrideWith((_) => kDemoUid),
       householdIdProvider.overrideWith((_) async => kDemoHouseholdId),
 

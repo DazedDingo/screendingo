@@ -67,7 +67,10 @@ final notInterestedProvider =
 final visibleNotInterestedProvider =
     Provider<List<NotInterestedItem>>((ref) {
   final items = ref.watch(notInterestedProvider).value ?? const [];
-  final uid = ref.watch(authStateProvider).value?.uid;
+  // Same currentUidProvider swap as notInterestedKeysProvider below —
+  // avoids touching FirebaseAuth.instance during build (would crash
+  // DEMO_MODE screenshots build, where Firebase init is skipped).
+  final uid = ref.watch(currentUidProvider);
   return items.where((n) {
     if (n.scope == 'shared') return true;
     return uid != null && n.ownerUid == uid;
@@ -103,7 +106,14 @@ Set<String> computeNotInterestedKeys(
 final notInterestedKeysProvider = Provider<Set<String>>((ref) {
   final items = ref.watch(notInterestedProvider).value ?? const [];
   final mode = ref.watch(viewModeProvider);
-  final uid = ref.watch(authStateProvider).value?.uid;
+  // Reads currentUidProvider (a Provider<String?>) instead of
+  // authStateProvider.value?.uid — same end result but the indirection
+  // avoids touching FirebaseAuth.instance during build, which crashes
+  // when Firebase isn't initialised (DEMO_MODE screenshots build).
+  // currentUidProvider is overridden in demo mode to return kDemoUid;
+  // in production it's a thin wrapper around authStateProvider that
+  // gracefully returns null when no user is signed in.
+  final uid = ref.watch(currentUidProvider);
   return computeNotInterestedKeys(items, mode, uid);
 });
 
