@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.4 (2026-05-25)
+
+- **Play Store pre-launch prep.** Generated Play Console image assets (512×512 hi-res icon + 1024×500 feature graphic with ScreenDingo wordmark) at `docs/play-store/assets/`. Added `docs/play-store/SUBMISSION_GUIDE.md` — paste-ready field-by-field guide for the Play Console submission including all form values, app-signing-key second-fingerprint dance, and the Internal → Production rollout order.
+- **Issue-queue abuse mitigations.**
+  - **Per-uid daily cap on new batches** (5 / 24h). Implemented in `enqueueIssue` — the rate-limit check runs only when a new batch would be created; appending to an already-pending batch bypasses it (no new GitHub issue is produced). New `RATE_MAX_NEW_BATCHES` / `RATE_WINDOW_MS` exports + `RATE_LIMIT_ERROR` sentinel; the `submitIssue` onCall wrapper translates the sentinel to `HttpsError("resource-exhausted", …)` so clients can render a "Daily report limit reached" snackbar. New Firestore composite index for `(uid, createdAt)` on `issueBatches` so the rate-limit query stays under one Firestore read per submission. Four new Jest tests covering under-cap allow, at-cap throw, append-bypass, and the 24h window constant.
+  - **Repo-name fix** in `processIssueQueue.ts` — `REPO_NAME` was still `"watchnext"`, so app-submitted issues were routing via GitHub's 301 redirect to `/screendingo`. The redirect works today but is brittle (and noisy in CF logs). Hardcoded to `"screendingo"`. User-Agent strings in `externalRatings.ts` + `index.ts` (Trakt OAuth) brought along for consistency.
+- **Privacy policy postal address** added (UK GDPR Article 13 / Google Play developer-disclosure requirement). Updated `docs/PRIVACY.md` data-controller block.
+- **Deployment note**: changes touch Cloud Functions + Firestore indexes. Run `firebase deploy --only functions,firestore:indexes` to land the rate limit + repo-name fix in production. The Play Store assets + privacy update are docs-only and land on the next GitHub Pages rebuild after push (~90s).
+
 ## 0.10.0 (2026-04-28)
 
 - Sub-topics filter on Home — new multi-select axis parallel to Genre. Pick "Animal docs" + Genre "Documentary" to surface only wildlife documentaries. AND-intersection both within sub-topics and between Sub-topics + Genre; selecting Sub-topics alone (with an empty Genre selection) narrows the rec pool to titles whose keyword augmentation tagged them with the sub-topic.
