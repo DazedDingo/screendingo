@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.16 (2026-05-22)
+
+- **screenshots-real.yml: revert launcher-disable, restore monkey launch.** Round 4 (run 26413267582) with launcher disabled + `am start -n .../LauncherClassic` left Flutter's activity lifecycle confused — main never reached runApp ("Activity top resumed state loss timeout" / "no window has focus" in logcat). Roundtrip: re-enable Pixel Launcher (its ANR dialog is now suppressed by `hide_error_dialogs=1` from 0.12.14, so it's harmless) and go back to `monkey -p ... LAUNCHER 1` which routes through the launcher's intent resolver the way round 2's successful run did. Launcher-disable was overcautious — the dialog suppression was enough.
+
 ## 0.12.15 (2026-05-22)
 
 - **screenshots-real.yml: inline KEYCODE_BACK per line.** Round 3 (run 26412269058) failed because the `cap()` shell function I defined didn't carry over between lines — the GHA reactivecircus emulator runner pipes each script line to a fresh `sh -c`, so function defs evaporate. Inlined the dismiss-then-capture into each line directly. Captures still triggered ANR-dialog-suppression as intended (hide_error_dialogs already set in earlier step survives).
