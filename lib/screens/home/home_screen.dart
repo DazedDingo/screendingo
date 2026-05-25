@@ -195,7 +195,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final askAiPlacement = ref.watch(askAiPlacementProvider);
     final watchedKeys = ref.watch(watchedKeysProvider);
     final notInterestedKeys = ref.watch(notInterestedKeysProvider);
-    final uid = ref.watch(authStateProvider).value?.uid;
+    final uid = ref.watch(currentUidProvider);
     final effectiveUid = mode == ViewMode.solo ? uid : null;
 
     // First-open imdb_id backfill — fires once per session as soon as the

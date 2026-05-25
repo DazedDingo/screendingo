@@ -31,7 +31,7 @@ class StatsScreen extends ConsumerWidget {
     final ratingsAsync = ref.watch(ratingsProvider);
     final stats = ref.watch(statsProvider);
     final members = ref.watch(membersProvider).value ?? const [];
-    final uid = ref.watch(authStateProvider).value?.uid;
+    final uid = ref.watch(currentUidProvider);
 
     final error = entriesAsync.hasError
         ? entriesAsync.error

@@ -91,7 +91,7 @@ class _SavedTab extends ConsumerWidget {
     final entries =
         ref.watch(watchEntriesProvider).value ?? const <WatchEntry>[];
     final mode = ref.watch(viewModeProvider);
-    final uid = ref.watch(authStateProvider).value?.uid;
+    final uid = ref.watch(currentUidProvider);
 
     final mediaType = ref.watch(libraryMediaTypeProvider);
     final sort = ref.watch(librarySortProvider);
@@ -1551,7 +1551,7 @@ class _HiddenTab extends ConsumerWidget {
     final visible = ref.watch(visibleNotInterestedProvider);
     final mode = ref.watch(viewModeProvider);
     final householdId = ref.watch(householdIdProvider).value ?? '';
-    final uid = ref.watch(authStateProvider).value?.uid;
+    final uid = ref.watch(currentUidProvider);
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
