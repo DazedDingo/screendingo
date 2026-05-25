@@ -133,23 +133,35 @@ jobs:
             mkdir -p screenshots
             # Install the demo-mode APK.
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            # Launch via the Classic activity-alias (one of 5 launcher
-            # aliases registered in AndroidManifest for the icon picker).
-            adb shell am start -n com.household.watchnext/.LauncherClassic
-            # Wait for Flutter first frame + splash animation (2.4s) +
-            # router redirect to /home + image fetches to settle. The
-            # poster images stream in from TMDB's CDN over the emulator's
-            # network so giving it 18s buys the screenshot reliable
-            # poster art instead of grey placeholders.
-            sleep 18
-            adb exec-out screencap -p > screenshots/01-home.png
-            # Best-effort additional shots — these may capture mid-
-            # navigation states, but useful to have multiple data points
-            # while we iterate on the suite. Phase 3 replaces this whole
-            # script with a Flutter integration_test driver that uses
-            # WidgetTester to navigate + binding.takeScreenshot for
-            # frame-accurate captures.
-            adb exec-out screencap -p > screenshots/02-home-again.png
+            # Wait for the system to settle after install — cold-boot
+            # launcher needs ~10s to finish indexing apps before it can
+            # cleanly resolve an activity launch (previous run hit
+            # "Pixel Launcher isn't responding" ANR launching too early).
+            sleep 10
+            # Clear logcat so the post-run dump only contains app-launch
+            # logs, not boot noise.
+            adb logcat -c
+            # Use `monkey` instead of `am start -n .LauncherClassic` —
+            # monkey resolves the default launchable activity through
+            # the same path the user's home-screen tap would, avoiding
+            # the activity-alias resolution quirk that may have caused
+            # the first ANR.
+            adb shell monkey -p com.household.watchnext \
+              -c android.intent.category.LAUNCHER 1
+            # Progressive snapshots so we can see splash → /login →
+            # /home transitions if the app boots correctly, or pinpoint
+            # where it stalls if not.
+            sleep 5;  adb exec-out screencap -p > screenshots/01-at-5s.png
+            sleep 10; adb exec-out screencap -p > screenshots/02-at-15s.png
+            sleep 10; adb exec-out screencap -p > screenshots/03-at-25s.png
+            sleep 15; adb exec-out screencap -p > screenshots/04-at-40s.png
+            # Diagnostics — bundled with the screenshots so we can see
+            # what the app process actually did.
+            adb logcat -d > screenshots/logcat.txt 2>&1 || true
+            adb shell ps -A 2>/dev/null | grep -i watchnext \
+              > screenshots/app-process.txt || true
+            adb shell dumpsys activity activities 2>/dev/null \
+              | head -200 > screenshots/dumpsys.txt || true
             ls -la screenshots/
             file screenshots/*.png
 
