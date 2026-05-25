@@ -1,4 +1,9 @@
-import { enqueueIssue } from "../src/submitIssue";
+import {
+  enqueueIssue,
+  RATE_LIMIT_ERROR,
+  RATE_MAX_NEW_BATCHES,
+  RATE_WINDOW_MS,
+} from "../src/submitIssue";
 
 let FAKE_NOW = 0;
 
@@ -19,6 +24,8 @@ jest.mock("firebase-admin", () => {
 
 function makeDb(opts: {
   pendingDocs?: any[];
+  /** Number of batches by this uid in the rate-limit window (defaults to 0). */
+  recentBatchCount?: number;
   autoGenId?: string;
 } = {}) {
   const set = jest.fn();
@@ -45,19 +52,33 @@ function makeDb(opts: {
 
   const newDocRef = { id: opts.autoGenId ?? "newBatch" };
 
-  const collection = jest.fn().mockImplementation((_path: string) => ({
-    where: () => ({
-      where: () => ({
-        limit: () => ({
-          get: jest.fn().mockResolvedValue({
-            empty: (opts.pendingDocs ?? []).length === 0,
-            docs: opts.pendingDocs ?? [],
-          }),
-        }),
+  // The chained .where().where().limit().get() shape is the pending-batch
+  // lookup. The .where().where().get() (no .limit) shape is the rate-limit
+  // window count. Both branches share the same `where()` entry — we detect
+  // which query the caller wanted by whether they invoked `.limit()`.
+  const collection = jest.fn().mockImplementation((_path: string) => {
+    const recentSnap = {
+      size: opts.recentBatchCount ?? 0,
+      docs: [],
+      empty: (opts.recentBatchCount ?? 0) === 0,
+    };
+    const pendingSnap = {
+      empty: (opts.pendingDocs ?? []).length === 0,
+      docs: opts.pendingDocs ?? [],
+    };
+    const secondWhere = {
+      // Rate-limit branch: .where(...).where(...).get()
+      get: jest.fn().mockResolvedValue(recentSnap),
+      // Pending-batch branch: .where(...).where(...).limit(1).get()
+      limit: () => ({
+        get: jest.fn().mockResolvedValue(pendingSnap),
       }),
-    }),
-    doc: () => newDocRef,
-  }));
+    };
+    return {
+      where: () => ({ where: () => secondWhere }),
+      doc: () => newDocRef,
+    };
+  });
 
   return {
     collection,
@@ -180,5 +201,60 @@ describe("enqueueIssue", () => {
 
     expect(res.appended).toBe(true);
     expect(res.itemCount).toBe(1);
+  });
+});
+
+describe("enqueueIssue — per-uid rate limit", () => {
+  const baseInput = {
+    householdId: "h1",
+    uid: "u1",
+    submitter: "Zach",
+    title: "Bug",
+    description: "broke",
+  };
+
+  test("allows new batch when under the daily cap", async () => {
+    const db = makeDb({
+      pendingDocs: [],
+      recentBatchCount: RATE_MAX_NEW_BATCHES - 1,
+    });
+    const res = await enqueueIssue(db, baseInput);
+    expect(res.appended).toBe(false);
+    expect(db._set).toHaveBeenCalledTimes(1);
+  });
+
+  test("throws RATE_LIMIT_ERROR when at or above the cap", async () => {
+    const db = makeDb({
+      pendingDocs: [],
+      recentBatchCount: RATE_MAX_NEW_BATCHES,
+    });
+    await expect(enqueueIssue(db, baseInput)).rejects.toThrow(RATE_LIMIT_ERROR);
+    expect(db._set).not.toHaveBeenCalled();
+    expect(db._update).not.toHaveBeenCalled();
+  });
+
+  test("appending to existing pending batch bypasses the cap", async () => {
+    // A user who already has a pending batch should be able to keep
+    // appending to it even if their last-24h batch count is at the cap —
+    // appending doesn't create a new GitHub issue.
+    const existingRef = { id: "b-existing" };
+    const existingDoc = {
+      ref: existingRef,
+      data: () => ({ uid: "u1", status: "pending", items: [{}] }),
+    };
+    const db = makeDb({
+      pendingDocs: [existingDoc],
+      recentBatchCount: RATE_MAX_NEW_BATCHES + 10, // way over
+    });
+
+    const res = await enqueueIssue(db, baseInput);
+
+    expect(res.appended).toBe(true);
+    expect(db._update).toHaveBeenCalledTimes(1);
+    expect(db._set).not.toHaveBeenCalled();
+  });
+
+  test("RATE_WINDOW_MS is 24 hours", () => {
+    expect(RATE_WINDOW_MS).toBe(24 * 60 * 60 * 1000);
   });
 });

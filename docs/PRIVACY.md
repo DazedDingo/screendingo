@@ -1,15 +1,16 @@
 # ScreenDingo — Privacy Policy
 
-_Last updated: 2026-05-24_
+_Last updated: 2026-05-25_
 
 This document describes how the ScreenDingo Android app handles personal
 information. It applies to the version distributed via Google Play and
 the sideload APKs available from this repository's GitHub Releases.
 
 **Data controller**: Zachary Birney, trading as DazedDingo. Contact:
-zachbirney@gmail.com. (A postal address will be added before the Play
-listing goes live, as required by Google Play's developer-disclosure
-policy and EU/UK GDPR Article 13.)
+zachbirney@gmail.com. Postal address: Flat 21, Kiln House, 14 St Thomas
+Street, Bristol BS1 6WL, United Kingdom. Under UK GDPR (and EU GDPR for
+EEA users), the data controller is responsible for how your personal
+information is handled by this app.
 
 ## TL;DR
 

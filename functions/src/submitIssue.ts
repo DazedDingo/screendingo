@@ -18,6 +18,16 @@ export interface EnqueueResult {
   dispatchAtMs: number;
 }
 
+// Per-uid cap on NEW batches created in any rolling 24h window. Appending
+// to an already-pending batch is free (no new GitHub issue produced). The
+// cap exists to bound the GitHub-issue spam a hostile household member
+// can produce; 5 batches/day = 5 GH issues/day/user, well clear of the
+// realistic upper bound for a real two-person household.
+export const RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RATE_MAX_NEW_BATCHES = 5;
+export const RATE_LIMIT_ERROR =
+  "Daily report limit reached — try again in 24 hours.";
+
 /**
  * Core enqueue logic extracted from the onCall wrapper so unit tests can
  * exercise the append-vs-create branch without firebase-functions-test.
@@ -25,7 +35,10 @@ export interface EnqueueResult {
  * Contract:
  * - Caller is already authenticated and has been verified as a household member.
  * - If a pending batch for this uid already exists, append + reset window.
- * - Otherwise create a new batch with a single item.
+ * - Otherwise create a new batch with a single item — unless the per-uid
+ *   24h cap on new batches has been hit, in which case throws
+ *   RATE_LIMIT_ERROR (the onCall wrapper translates to a
+ *   resource-exhausted HttpsError).
  */
 export async function enqueueIssue(
   db: admin.firestore.Firestore,
@@ -42,6 +55,23 @@ export async function enqueueIssue(
     .get();
 
   const now = admin.firestore.Timestamp.now();
+
+  // Rate-limit check: count batches by this uid in the last 24h. Only
+  // gates the NEW-batch path; appending to an existing pending batch
+  // bypasses the check because it doesn't produce a new GitHub issue.
+  if (pendingSnap.empty) {
+    const windowStart = admin.firestore.Timestamp.fromMillis(
+      now.toMillis() - RATE_WINDOW_MS,
+    );
+    const recentSnap = await batchesCol
+      .where("uid", "==", input.uid)
+      .where("createdAt", ">=", windowStart)
+      .get();
+    if (recentSnap.size >= RATE_MAX_NEW_BATCHES) {
+      throw new Error(RATE_LIMIT_ERROR);
+    }
+  }
+
   const dispatchAt = admin.firestore.Timestamp.fromMillis(
     now.toMillis() + DEBOUNCE_WINDOW_MS,
   );
@@ -129,13 +159,22 @@ export const submitIssue = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not a member of this household");
   }
 
-  const result = await enqueueIssue(db, {
-    householdId,
-    uid,
-    submitter,
-    title,
-    description,
-  });
+  let result: EnqueueResult;
+  try {
+    result = await enqueueIssue(db, {
+      householdId,
+      uid,
+      submitter,
+      title,
+      description,
+    });
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg === RATE_LIMIT_ERROR) {
+      throw new HttpsError("resource-exhausted", msg);
+    }
+    throw e;
+  }
 
   logger.info("Issue enqueued", {
     householdId,

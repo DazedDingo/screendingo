@@ -3,7 +3,7 @@ import * as logger from "firebase-functions/logger";
 import { buildBundledBody, buildBundledTitle, FlattenedItem } from "./issueQueue";
 
 const REPO_OWNER = "DazedDingo";
-const REPO_NAME = "watchnext";
+const REPO_NAME = "screendingo";
 
 export interface ProcessResult {
   scanned: number;
@@ -93,7 +93,7 @@ export function makeGitHubPoster(pat: string): GitHubPoster {
           Accept: "application/vnd.github+json",
           "X-GitHub-Api-Version": "2022-11-28",
           "Content-Type": "application/json",
-          "User-Agent": "watchnext",
+          "User-Agent": "screendingo",
         },
         body: JSON.stringify({ title, body, labels }),
       },

@@ -84,7 +84,7 @@ async function fetchFromOmdb(
   let res: Response;
   try {
     res = await fetch(url.toString(), {
-      headers: { "User-Agent": "watchnext/1.0" },
+      headers: { "User-Agent": "screendingo/1.0" },
     });
   } catch (err) {
     throw new HttpsError(
