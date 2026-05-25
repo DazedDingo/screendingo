@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.23 (2026-05-22)
+
+- **screenshots-real-it.yml: convert multi-line if-then-fi to one-liners.** First run of the integration_test workflow (26418158149) failed with `sh: Syntax error: end of file unexpected (expecting "fi")` — the reactivecircus emulator-runner action pipes each script line to a fresh `sh -c`, so the multi-line secret-validation `if-then-fi` blocks got split across separate shells. Same gotcha that hit the adb-screencap path in round 3 of `screenshots-real.yml`. Fix: `[ -n "$X" ] || { echo "err"; exit 1; }` one-liner for each secret check, single-line `&& ... || true` pattern for the cp loop.
+
 ## 0.12.22 (2026-05-22)
 
 - **`screenshots-real-it.yml` + integration_test driver.** New parallel pipeline that drives the running app between captures (Home → Filters panel expanded → TitleDetail → Library → Profile) for 4-8 distinct Play Store grid screenshots, vs the adb-screencap path's Home-only output. Uses `integration_test` SDK's driver-extended pattern: device-side `integration_test/screenshots_test.dart` calls `binding.takeScreenshot('beat')`, host-side `test_driver/integration_test.dart` decodes the auto-pushed bytes and writes `screenshots/it/*.png`. Same seed + custom-token + boot-reliability setup as `screenshots-real.yml`. New `integration_test` dev_dependency (bundled with Flutter SDK).
