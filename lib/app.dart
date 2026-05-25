@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'demo/demo_mode.dart';
 import 'providers/household_provider.dart';
 import 'providers/mode_provider.dart';
 import 'providers/theme_provider.dart';
@@ -89,7 +90,9 @@ String? computeRouterRedirect({required bool signedIn, required String loc}) {
 final _router = GoRouter(
   initialLocation: '/splash',
   redirect: (_, state) => computeRouterRedirect(
-    signedIn: FirebaseAuth.instance.currentUser != null,
+    // DEMO_MODE: treat every navigation as signed-in. The screenshot APK
+    // skips auth entirely; production builds keep the real Firebase check.
+    signedIn: kDemoMode || FirebaseAuth.instance.currentUser != null,
     loc: pickRouterLoc(
       uri: state.uri,
       matchedLocation: state.matchedLocation,

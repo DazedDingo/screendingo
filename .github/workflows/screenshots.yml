@@ -105,12 +105,17 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Build debug APK
-        # --dart-define values are placeholders — the screens captured
-        # in Phase 1 (login) don't exercise these. Phase 2 will swap
-        # this for a DEMO_MODE build.
+      - name: Build debug APK with DEMO_MODE=true
+        # DEMO_MODE bypasses Firebase auth + swaps all Firestore-coupled
+        # providers for curated mock data (see lib/demo/). TMDB key isn't
+        # needed because the demo data layer doesn't make TMDB API calls —
+        # TMDB image CDN is public and used directly via poster paths.
+        # Trakt key isn't needed because OAuth flow is unreachable in
+        # demo mode (Profile/Trakt screen still renders the unlinked
+        # state, but the screenshot suite doesn't visit it).
         run: |
           flutter build apk --debug \
+            --dart-define=DEMO_MODE=true \
             --dart-define=TMDB_API_KEY=placeholder \
             --dart-define=TRAKT_CLIENT_ID=placeholder
 
@@ -126,16 +131,27 @@ jobs:
           disable-animations: true
           script: |
             mkdir -p screenshots
-            # Install the debug APK we just built.
+            # Install the demo-mode APK.
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            # Launch the main activity (one of the launcher activity-aliases).
+            # Launch via the Classic activity-alias (one of 5 launcher
+            # aliases registered in AndroidManifest for the icon picker).
             adb shell am start -n com.household.watchnext/.LauncherClassic
-            # Give the app time to draw the first frame.
-            sleep 8
-            # Capture screen.
-            adb exec-out screencap -p > screenshots/01-launch.png
+            # Wait for Flutter first frame + splash animation (2.4s) +
+            # router redirect to /home + image fetches to settle. The
+            # poster images stream in from TMDB's CDN over the emulator's
+            # network so giving it 18s buys the screenshot reliable
+            # poster art instead of grey placeholders.
+            sleep 18
+            adb exec-out screencap -p > screenshots/01-home.png
+            # Best-effort additional shots — these may capture mid-
+            # navigation states, but useful to have multiple data points
+            # while we iterate on the suite. Phase 3 replaces this whole
+            # script with a Flutter integration_test driver that uses
+            # WidgetTester to navigate + binding.takeScreenshot for
+            # frame-accurate captures.
+            adb exec-out screencap -p > screenshots/02-home-again.png
             ls -la screenshots/
-            file screenshots/01-launch.png
+            file screenshots/*.png
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
