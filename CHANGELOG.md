@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.22 (2026-05-22)
+
+- **`screenshots-real-it.yml` + integration_test driver.** New parallel pipeline that drives the running app between captures (Home → Filters panel expanded → TitleDetail → Library → Profile) for 4-8 distinct Play Store grid screenshots, vs the adb-screencap path's Home-only output. Uses `integration_test` SDK's driver-extended pattern: device-side `integration_test/screenshots_test.dart` calls `binding.takeScreenshot('beat')`, host-side `test_driver/integration_test.dart` decodes the auto-pushed bytes and writes `screenshots/it/*.png`. Same seed + custom-token + boot-reliability setup as `screenshots-real.yml`. New `integration_test` dev_dependency (bundled with Flutter SDK).
+
 ## 0.12.21 (2026-05-22)
 
 - **screenshots-real.yml: ANR grep finally matches.** Round 11 (v0.12.20) captured `dumpsys window` to the artifact for debugging. The actual ANR dialog window is named `Application Not Responding: com.household.watchnext` — earlier patterns missed because of the **space** in "Not Responding" vs "NotResponding". Final pattern: `grep -qiE "application not responding"`. Verified against the captured dumpsys before pushing.
