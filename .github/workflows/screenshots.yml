@@ -85,6 +85,24 @@ jobs:
           }
           EOF
 
+      - name: Generate throwaway debug keystore
+        # build.gradle.kts pins debug signing to an in-tree
+        # debug.keystore with the standard Android-Studio defaults
+        # (alias=androiddebugkey, password=android). The release.yml
+        # workflow restores the real one from DEBUG_KEYSTORE_B64 so
+        # the SHA-1 matches what's registered in Firebase — but for
+        # screenshots we don't sign in to Google, so the cert
+        # identity doesn't matter. Generating a fresh keystore with
+        # the same alias/password is enough to satisfy
+        # validateSigningDebug.
+        run: |
+          keytool -genkey -v \
+            -keystore android/app/debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+
       - run: flutter pub get
 
       - name: Build debug APK
