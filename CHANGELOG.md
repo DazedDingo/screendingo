@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.20 (2026-05-22)
+
+- **screenshots-real.yml: broaden ANR-detection grep + dump windows for debugging.** Round 10 (v0.12.19) showed the ANR dialog still overlaid the captures — the `AppNotRespondingDialog|NotRespondingDialog` pattern didn't match the actual window name on Android 14. Broadened to `notresponding|apperror|isn.t responding|baseerrordialog` (case-insensitive). Also captures `dumpsys window` output to the artifact (pre-launch + at t=30s) so future tuning can grep the real window names without another guess-and-check round.
+
 ## 0.12.19 (2026-05-22)
 
 - **screenshots-real.yml: gate ANR-dismiss tap on dialog presence.** Round 9 (v0.12.18) fired `input tap 540 1290` on every screencap — when no ANR dialog was on screen, the tap landed on the Tonight's Pick card and navigated us to a half-loaded TitleDetail (collateral damage in frame 02-at-45s). Fix: only tap when `dumpsys window windows | grep -q AppNotRespondingDialog` returns a match. No dialog → no tap → Home stays put.
