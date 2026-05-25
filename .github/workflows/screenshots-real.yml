@@ -193,29 +193,34 @@ jobs:
             #    its ANR can't overlay our app if it isn't running.
             #    pm disable-user is reversible and contained to user 0.
             adb shell pm grant com.household.watchnext android.permission.POST_NOTIFICATIONS || true
-            adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher || true
             # 3. Hide all ANR / crash / app-not-responding dialogs at the
-            #    OS level. Round 2 (run 26411786267) showed the app
-            #    ANRing for ~5s after sign-in — 11 Firestore listeners,
-            #    19 TMDB image loads, 12 OMDb CF calls all firing
-            #    concurrently saturates the single-core emulator's main
-            #    thread. The app rendered correctly behind the dialog
-            #    (real Better Call Saul as Tonight's Pick with IMDB 9.0
-            #    + AI blurb visible) but the system dialog covered ~half
-            #    the screen. hide_error_dialogs=1 suppresses the dialog
-            #    without stopping the app — it just keeps running.
+            #    OS level. Both the Pixel Launcher's cold-boot ANR (seen
+            #    in rounds 1+2) AND our app's post-sign-in ANR (seen in
+            #    round 2: 11 Firestore listeners + 19 TMDB image loads
+            #    + 12 OMDb CF calls all firing concurrently saturates
+            #    the single-core emulator's main thread for >5s) are
+            #    purely cosmetic dialogs on this emulator — the
+            #    underlying processes keep running. hide_error_dialogs
+            #    suppresses the dialogs system-wide; everything still
+            #    works behind them. Round 3 tried disabling the
+            #    launcher entirely (pm disable-user) but that broke
+            #    Flutter's activity-alias lifecycle in a more subtle
+            #    way (main never reached runApp, blank screens). Just
+            #    hide the dialogs and let the launcher run.
             adb shell settings put global hide_error_dialogs 1 || true
             # Cold-boot settle time — kept the 10s grace from round 1
             # even though the launcher's now disabled (some system
             # services still finalise indexing in the same window).
             sleep 10
             adb logcat -c
-            # Launch via `am start -n` against the Classic activity-alias
-            # (default-shipped per AppIconSwitcher, gotcha 49). Direct
-            # activity launch is cleaner than monkey here because monkey
-            # routes through the launcher's intent resolver — which we
-            # just disabled.
-            adb shell am start -n com.household.watchnext/.LauncherClassic
+            # Launch via monkey — routes through the launcher's intent
+            # resolver, which is the same path the user's home-screen
+            # tap takes and works cleanly with our activity-alias setup
+            # (gotcha 49). Round 3's `am start -n .../.LauncherClassic`
+            # variant broke Flutter's activity lifecycle when the
+            # launcher was disabled; with launcher running + monkey
+            # launch, round 2 proved this path lands on Home reliably.
+            adb shell monkey -p com.household.watchnext -c android.intent.category.LAUNCHER 1
             # Defensive dialog dismiss — if any lingering system dialog
             # slipped through (notification permission on a slow cold
             # boot, e.g.), KEYCODE_BACK closes it without affecting the
