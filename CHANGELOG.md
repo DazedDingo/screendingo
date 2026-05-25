@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.18 (2026-05-22)
+
+- **screenshots-real.yml: dismiss ANR via input-tap, drop hide_error_dialogs.** Round 7 (run 26414357764) exposed the real failure mode of `hide_error_dialogs=1` from 0.12.14: it hides the dialog AND Android silently KILLS the unresponsive app, dropping the screen back to the launcher (the populated Home grid screenshots were the Pixel Launcher, not us). Fix: revert hide_error_dialogs, let the ANR dialog appear, then `input tap 540 1290` to hit "Wait" — keeps the app alive AND dismisses the overlay. `KEYCODE_BACK` retained as fallback for non-ANR dialogs. Captures pushed back to 30/45/60/75/90s post-launch so the post-sign-in fanout (11 Firestore listeners + 19 TMDB images + 12 OMDb CFs) finishes before screencap.
+
 ## 0.12.17 (2026-05-22)
 
 - **screenshots-real.yml: emulator boot-reliability config.** Rounds 4 + 6 both timed out with "Timeout waiting for emulator to boot" / "device 'emulator-5554' not found" — a known flakiness mode of `reactivecircus/android-emulator-runner@v2` on GHA ubuntu-latest where the emulator process simply doesn't come up. Mitigations: bump `ram-size: 4096M` + `heap-size: 512M` (default 1536M is tight and contributes to boot stalls), `disable-spellchecker: true` (trims background work competing with boot on single-core VMs), `emulator-boot-timeout: 600` (explicit), `-no-metrics` (skips the boot-time telemetry handshake).
