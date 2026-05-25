@@ -194,6 +194,17 @@ jobs:
             #    pm disable-user is reversible and contained to user 0.
             adb shell pm grant com.household.watchnext android.permission.POST_NOTIFICATIONS || true
             adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher || true
+            # 3. Hide all ANR / crash / app-not-responding dialogs at the
+            #    OS level. Round 2 (run 26411786267) showed the app
+            #    ANRing for ~5s after sign-in — 11 Firestore listeners,
+            #    19 TMDB image loads, 12 OMDb CF calls all firing
+            #    concurrently saturates the single-core emulator's main
+            #    thread. The app rendered correctly behind the dialog
+            #    (real Better Call Saul as Tonight's Pick with IMDB 9.0
+            #    + AI blurb visible) but the system dialog covered ~half
+            #    the screen. hide_error_dialogs=1 suppresses the dialog
+            #    without stopping the app — it just keeps running.
+            adb shell settings put global hide_error_dialogs 1 || true
             # Cold-boot settle time — kept the 10s grace from round 1
             # even though the launcher's now disabled (some system
             # services still finalise indexing in the same window).
@@ -218,11 +229,16 @@ jobs:
             # the app should be settled on Home with the seeded household
             # rendered. The later snapshots give Firestore listeners and
             # TMDB poster loads time to land.
-            sleep 3;  adb exec-out screencap -p > screenshots/01-at-5s.png
-            sleep 10; adb exec-out screencap -p > screenshots/02-at-15s.png
-            sleep 15; adb exec-out screencap -p > screenshots/03-at-30s.png
-            sleep 15; adb exec-out screencap -p > screenshots/04-at-45s.png
-            sleep 15; adb exec-out screencap -p > screenshots/05-at-60s.png
+            # Helper: before each screencap, send KEYCODE_BACK to
+            # dismiss any system dialog that slipped past
+            # hide_error_dialogs. Cheap, idempotent, no effect when
+            # there's no dialog to dismiss.
+            cap() { adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > "$1"; }
+            sleep 3;  cap screenshots/01-at-5s.png
+            sleep 10; cap screenshots/02-at-15s.png
+            sleep 15; cap screenshots/03-at-30s.png
+            sleep 15; cap screenshots/04-at-45s.png
+            sleep 15; cap screenshots/05-at-60s.png
             # Diagnostics bundle — same shape as screenshots.yml so the
             # debugging muscle memory transfers between the two
             # pipelines.
