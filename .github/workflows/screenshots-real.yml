@@ -229,16 +229,17 @@ jobs:
             # the app should be settled on Home with the seeded household
             # rendered. The later snapshots give Firestore listeners and
             # TMDB poster loads time to land.
-            # Helper: before each screencap, send KEYCODE_BACK to
-            # dismiss any system dialog that slipped past
-            # hide_error_dialogs. Cheap, idempotent, no effect when
-            # there's no dialog to dismiss.
-            cap() { adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > "$1"; }
-            sleep 3;  cap screenshots/01-at-5s.png
-            sleep 10; cap screenshots/02-at-15s.png
-            sleep 15; cap screenshots/03-at-30s.png
-            sleep 15; cap screenshots/04-at-45s.png
-            sleep 15; cap screenshots/05-at-60s.png
+            # Before each screencap, send KEYCODE_BACK to dismiss any
+            # system dialog that slipped past hide_error_dialogs.
+            # Idempotent + no-op when there's no dialog. Inlined per
+            # line because the GHA emulator runner pipes each line to
+            # a fresh `sh -c` — shell functions don't carry over
+            # between lines (round 3 hit this; cap() not found).
+            sleep 3;  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/01-at-5s.png
+            sleep 10; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/02-at-15s.png
+            sleep 15; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/03-at-30s.png
+            sleep 15; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/04-at-45s.png
+            sleep 15; adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true; adb exec-out screencap -p > screenshots/05-at-60s.png
             # Diagnostics bundle — same shape as screenshots.yml so the
             # debugging muscle memory transfers between the two
             # pipelines.
