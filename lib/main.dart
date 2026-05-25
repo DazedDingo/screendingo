@@ -44,11 +44,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Diagnostic — confirm kDemoMode value at runtime. Routed through
-  // developer.log so it's reliably captured in adb logcat even when the
-  // logcat buffer is rolling. Lets the CI screenshots workflow verify
-  // the --dart-define=DEMO_MODE=true flag is actually being honoured.
-  developer.log('wn.boot kDemoMode=$kDemoMode', name: 'wn.boot');
+  // Diagnostic — confirm kDemoMode value at runtime. debugPrint reliably
+  // routes to logcat under the `flutter` tag in debug builds (where
+  // developer.log was apparently being dropped by something in the
+  // CI screenshots emulator pipeline).
+  debugPrint('WN_BOOT kDemoMode=$kDemoMode');
   // Replace the default gray rectangle shown on build failures in release
   // mode — we'd rather see the actual error than a blank screen. Also
   // push the exception + stack into developer.log so adb logcat captures
@@ -57,12 +57,10 @@ void main() async {
   // from logcat, likely rolled out of the 10240-line buffer before
   // adb logcat -d dumped it).
   ErrorWidget.builder = (details) {
-    developer.log(
-      'ErrorWidget invoked: ${details.exceptionAsString()}',
-      name: 'wn.errorWidget',
-      error: details.exception,
-      stackTrace: details.stack,
-    );
+    debugPrint('WN_ERR ${details.exceptionAsString()}');
+    if (details.stack != null) {
+      debugPrint('WN_ERR_STACK ${details.stack}');
+    }
     return Material(
       color: const Color(0xFF1A1A1A),
       child: Center(
