@@ -1,0 +1,127 @@
+name: screenshots (Play Store)
+
+# Phase 1 — pipeline validation only.
+#
+# Boots a KVM-accelerated Pixel 8 emulator on a ubuntu-latest runner,
+# builds the existing debug APK (no DEMO_MODE yet — we just want to
+# capture the login screen as proof the pipeline works), installs it,
+# captures one screenshot via `adb exec-out screencap -p`, uploads
+# as a workflow artifact.
+#
+# Phase 2 will add DEMO_MODE to the app and replace this single
+# screenshot with a full integration_test-driven sweep that captures
+# all 5-8 Play-Store-ready screens with curated mock data.
+#
+# Why this matters: Google doesn't ship the Android emulator for
+# linux_aarch64 (only x64/macOS/Windows), so we can't run this on
+# the Oracle arm64 VPS that hosts the rest of our CI thinking. GHA
+# ubuntu-latest is x64 with KVM enabled since Feb 2023 explicitly
+# for the Android-emulator-on-CI use case.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write  # upload artifact
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pre-emulator-run hack: enable KVM on the runner. The
+      # reactivecircus action sets this up automatically on most
+      # configs but the explicit form is safer + documents the
+      # requirement.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Write google-services.json (dummy — debug build needs SOMETHING)
+        # The debug build references google-services.json at compile
+        # time. For the screenshots build we don't actually hit
+        # Firebase, but the file must exist for the build to succeed.
+        # Write a minimal placeholder rather than carrying the real
+        # secret into this workflow (which is intentionally
+        # secrets-free so it can be triggered freely).
+        run: |
+          cat > android/app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "screendingo-demo",
+              "storage_bucket": "screendingo-demo.appspot.com"
+            },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                "android_client_info": { "package_name": "com.household.watchnext" }
+              },
+              "oauth_client": [{
+                "client_id": "000000000000-placeholder.apps.googleusercontent.com",
+                "client_type": 3
+              }],
+              "api_key": [{ "current_key": "AIzaSyDUMMYKEY_FOR_SCREENSHOTS_ONLY" }],
+              "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+            }],
+            "configuration_version": "1"
+          }
+          EOF
+
+      - run: flutter pub get
+
+      - name: Build debug APK
+        # --dart-define values are placeholders — the screens captured
+        # in Phase 1 (login) don't exercise these. Phase 2 will swap
+        # this for a DEMO_MODE build.
+        run: |
+          flutter build apk --debug \
+            --dart-define=TMDB_API_KEY=placeholder \
+            --dart-define=TRAKT_CLIENT_ID=placeholder
+
+      - name: Boot emulator + capture screenshot
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_8
+          # Headless boot — no UI needed on the CI runner.
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none
+          disable-animations: true
+          script: |
+            mkdir -p screenshots
+            # Install the debug APK we just built.
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            # Launch the main activity (one of the launcher activity-aliases).
+            adb shell am start -n com.household.watchnext/.LauncherClassic
+            # Give the app time to draw the first frame.
+            sleep 8
+            # Capture screen.
+            adb exec-out screencap -p > screenshots/01-launch.png
+            ls -la screenshots/
+            file screenshots/01-launch.png
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: screendingo-screenshots-phase1
+          path: screenshots/
+          retention-days: 14
