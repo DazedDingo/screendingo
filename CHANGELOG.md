@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.12 (2026-05-22)
+
+- **`scripts/process_screenshots.py`** — crops Pixel 7 emulator captures (1080×2400, 9:20 — too tall for Play Console's [9:16, 16:9] aspect gate) down to Play-Store-ready 1080×1920 (9:16) frames. Strips status bar + nav pill (pure chrome) then bottom-crops to 9:16, preserving the AppBar + hero (Tonight's Pick, action row, top rec cards) over the lower rec rows. Also emits a 1080×2252 "loose" variant in case Play accepts the taller frame.
+- **screenshots-real.yml** runs the cropper automatically before artifact upload. Processed PNGs land in `screenshots/processed/` alongside the raw captures.
+
 ## 0.12.11 (2026-05-22)
 
 - **Screenshots-real CI pipeline.** New `screenshots-real.yml` workflow captures Play-Store-grade screenshots from the production app (not DEMO_MODE) by pre-seeding a curated test household into real Firestore, minting a Firebase custom token, baking it into the debug APK via `--dart-define=AUTO_SIGN_IN_TOKEN=...`, and exchanging it for a real session at boot. Skips Google Sign-In UI entirely (which GHA emulators can't drive reliably). Existing `screenshots.yml` (DEMO_MODE pipeline-validation flow) stays untouched.

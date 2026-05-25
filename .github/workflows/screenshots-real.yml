@@ -204,6 +204,25 @@ jobs:
             ls -la screenshots/
             file screenshots/*.png
 
+      - name: Crop captures to Play-Store-ready 1080×1920 (9:16)
+        # Pixel 7 emulator captures at 1080×2400 — too tall for Play
+        # Console's [9:16, 16:9] aspect-ratio gate. process_screenshots.py
+        # strips the system status bar + nav pill (pure chrome) and
+        # bottom-crops to 9:16 while preserving the AppBar + hero
+        # content. Writes two variants per capture: 1080×1920 (Play-safe)
+        # + 1080×2252 (chrome-trimmed loose variant in case Play accepts
+        # the taller frame today). Continues on failure so a bad PNG
+        # doesn't kill the artifact upload.
+        if: always()
+        run: |
+          if ls screenshots/*.png >/dev/null 2>&1; then
+            python3 -m pip install --quiet Pillow
+            python3 scripts/process_screenshots.py screenshots/ --out screenshots/processed/ || \
+              echo "::warning::cropper failed — raw captures still in artifact"
+          else
+            echo "::warning::no PNGs to crop"
+          fi
+
       - name: Upload screenshot artifact
         if: always()
         uses: actions/upload-artifact@v4
