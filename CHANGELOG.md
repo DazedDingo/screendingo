@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.11 (2026-05-22)
+
+- **Screenshots-real CI pipeline.** New `screenshots-real.yml` workflow captures Play-Store-grade screenshots from the production app (not DEMO_MODE) by pre-seeding a curated test household into real Firestore, minting a Firebase custom token, baking it into the debug APK via `--dart-define=AUTO_SIGN_IN_TOKEN=...`, and exchanging it for a real session at boot. Skips Google Sign-In UI entirely (which GHA emulators can't drive reliably). Existing `screenshots.yml` (DEMO_MODE pipeline-validation flow) stays untouched.
+- **`signInWithCustomToken` auto-auth in `main.dart`.** New top-level `_kAutoSignInToken` const + auto-sign-in block inside the `!kDemoMode` Firebase init guard. Empty token → no-op (normal production builds untouched).
+- **Seed + token-mint tooling.** `functions/scripts/screenshots_setup.ts` exposes two subcommands: `seed` (idempotent Firestore writes mirroring `lib/demo/demo_data.dart`) and `mint-token` (prints a fresh `createCustomToken` to stdout for CI capture).
+- **Docs.** New `docs/play-store/SCREENSHOTS_REAL.md` walks the four GitHub secrets needed (`FIREBASE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SERVICES_JSON_B64`, `TMDB_API_KEY`, `TRAKT_CLIENT_ID`) plus the one-time local seed verification + how to refresh the seed content.
+
 ## 0.12.4 (2026-05-25)
 
 - **Play Store pre-launch prep.** Generated Play Console image assets (512×512 hi-res icon + 1024×500 feature graphic with ScreenDingo wordmark) at `docs/play-store/assets/`. Added `docs/play-store/SUBMISSION_GUIDE.md` — paste-ready field-by-field guide for the Play Console submission including all form values, app-signing-key second-fingerprint dance, and the Internal → Production rollout order.

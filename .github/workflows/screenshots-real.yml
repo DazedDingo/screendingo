@@ -1,0 +1,214 @@
+name: screenshots-real (Play Store)
+
+# Production-grade screenshot capture pipeline.
+#
+# Pre-seeds a curated test household into real Firestore via
+# firebase-admin, mints a Firebase custom token for the seeded uid, builds
+# a debug APK (real Firebase config — NO DEMO_MODE) with the token baked
+# in via `--dart-define=AUTO_SIGN_IN_TOKEN=...`, boots a Pixel emulator,
+# launches the app, captures progressive screenshots.
+#
+# Compared to screenshots.yml (DEMO_MODE pipeline validation):
+#   - Real Firebase config from secret (not placeholder JSON)
+#   - Real TMDB key (so posters + ratings + reviews load)
+#   - signInWithCustomToken auto-auth (no Google Sign-In UI to drive)
+#   - Real Cloud Functions + Firestore reads — exercises every code path
+#     the production app exercises, end-to-end
+#
+# Required secrets:
+#   GOOGLE_SERVICES_JSON_B64    — base64 of android/app/google-services.json
+#                                 from Firebase console
+#   FIREBASE_SERVICE_ACCOUNT_JSON — raw JSON contents of a service account
+#                                 with "Firebase Auth Admin" + Firestore
+#                                 write permissions; minted via
+#                                 console.firebase.google.com → Project
+#                                 Settings → Service accounts
+#   TMDB_API_KEY                — same key the app uses in production
+#   TRAKT_CLIENT_ID             — same client id the app uses in production
+#                                 (only required by the build, not by any
+#                                 read path the screenshot run exercises)
+#
+# Run `firebase functions:secrets:access FIREBASE_SERVICE_ACCOUNT_JSON`
+# to verify the secret has no trailing newline before kicking off the
+# first run; same trailing-`\n` rule as gotcha 35b in CLAUDE.md.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: write  # upload artifact
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore google-services.json from secret
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON_B64" ]; then
+            echo "::error::GOOGLE_SERVICES_JSON_B64 secret is not set"
+            exit 1
+          fi
+          echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
+          # Cheap sanity check — if the decode produced something that
+          # isn't valid JSON, fail fast with a clear message rather than
+          # letting the Android build choke 5 minutes later.
+          python3 -c "import json,sys; json.load(open('android/app/google-services.json')); print('google-services.json OK')"
+
+      - name: Generate throwaway debug keystore
+        # Custom-token sign-in bypasses Google Sign-In's SHA-1 cert check,
+        # so we don't need the registered debug keystore here — a fresh
+        # one with the canonical alias/password is enough to satisfy
+        # validateSigningDebug. Saves a secret + a restore step.
+        run: |
+          keytool -genkey -v \
+            -keystore android/app/debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Install Cloud Functions deps (for seeder + token mint)
+        working-directory: functions
+        run: npm ci
+
+      - name: Seed screenshot test household into Firestore
+        # Idempotent — re-running overwrites the same docs. We re-seed on
+        # every CI run so the relative timestamps (lastWatchedAt, ratedAt,
+        # addedAt) stay fresh; the rendered "Watched 2 days ago" / "Rated
+        # last week" copy on the screenshots tracks wall-clock time, so
+        # the seed has to track it too.
+        working-directory: functions
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT_JSON secret is not set"
+            exit 1
+          fi
+          npx ts-node scripts/screenshots_setup.ts seed
+
+      - name: Mint custom auth token for the seeded household
+        id: mint
+        working-directory: functions
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          TOKEN=$(npx ts-node scripts/screenshots_setup.ts mint-token)
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Token mint produced empty output"
+            exit 1
+          fi
+          # Mask the token in logs so it never leaks via accidental echo.
+          echo "::add-mask::$TOKEN"
+          # Hand off to the build step. GitHub Actions step outputs are
+          # the safest transport for sensitive values between steps;
+          # multi-line tokens are fine via the < <(printf) form.
+          {
+            echo "token<<EOF_TOKEN"
+            printf '%s' "$TOKEN"
+            echo
+            echo "EOF_TOKEN"
+          } >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Build debug APK with AUTO_SIGN_IN_TOKEN
+        # No DEMO_MODE — this is a real-Firebase build. The token plumbed
+        # through dart-define lets main.dart auto-sign-in immediately
+        # after App Check activation, so the emulator never has to see
+        # the Google Sign-In UI.
+        env:
+          AUTO_SIGN_IN_TOKEN: ${{ steps.mint.outputs.token }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+        run: |
+          if [ -z "$TMDB_API_KEY" ]; then
+            echo "::error::TMDB_API_KEY secret is not set"; exit 1
+          fi
+          if [ -z "$TRAKT_CLIENT_ID" ]; then
+            echo "::error::TRAKT_CLIENT_ID secret is not set"; exit 1
+          fi
+          flutter build apk --debug \
+            --dart-define=AUTO_SIGN_IN_TOKEN="$AUTO_SIGN_IN_TOKEN" \
+            --dart-define=TMDB_API_KEY="$TMDB_API_KEY" \
+            --dart-define=TRAKT_CLIENT_ID="$TRAKT_CLIENT_ID"
+
+      - name: Boot emulator + capture screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none
+          disable-animations: true
+          script: |
+            mkdir -p screenshots
+            # Same 16M logcat ring as screenshots.yml so the post-run
+            # diagnostics survive ~60s of capture + Android system noise.
+            adb logcat -G 16M
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            # Cold-boot launcher settle time — same 10s grace as
+            # screenshots.yml (avoids the "Pixel Launcher isn't
+            # responding" ANR observed when launching too early).
+            sleep 10
+            adb logcat -c
+            adb shell monkey -p com.household.watchnext -c android.intent.category.LAUNCHER 1
+            # Progressive snapshots so we can see splash → auth-sign-in
+            # → /home transitions if the app boots correctly, or pinpoint
+            # where it stalls if not. The signInWithCustomToken round
+            # trip is typically ~1-2s on a fresh emulator, so by t=10s
+            # the app should be settled on Home with the seeded household
+            # rendered. The later snapshots give Firestore listeners and
+            # TMDB poster loads time to land.
+            sleep 5;  adb exec-out screencap -p > screenshots/01-at-5s.png
+            sleep 10; adb exec-out screencap -p > screenshots/02-at-15s.png
+            sleep 15; adb exec-out screencap -p > screenshots/03-at-30s.png
+            sleep 15; adb exec-out screencap -p > screenshots/04-at-45s.png
+            sleep 15; adb exec-out screencap -p > screenshots/05-at-60s.png
+            # Diagnostics bundle — same shape as screenshots.yml so the
+            # debugging muscle memory transfers between the two
+            # pipelines.
+            adb logcat -d > screenshots/logcat.txt 2>&1 || true
+            grep -E 'WN_BOOT|WN_ERR|flutter :' screenshots/logcat.txt > screenshots/logcat-app.txt || true
+            adb shell ps -A 2>/dev/null | grep -i watchnext > screenshots/app-process.txt || true
+            adb shell dumpsys activity activities 2>/dev/null | head -200 > screenshots/dumpsys.txt || true
+            ls -la screenshots/
+            file screenshots/*.png
+
+      - name: Upload screenshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screendingo-screenshots-real
+          path: screenshots/
+          retention-days: 14
+          if-no-files-found: ignore
