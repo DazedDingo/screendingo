@@ -27,8 +27,39 @@ import '../providers/upcoming_provider.dart';
 import '../providers/upnext_provider.dart';
 import '../providers/watch_entries_provider.dart';
 import '../providers/watchlist_provider.dart';
+import '../services/auth_service.dart';
 import 'demo_data.dart';
 import 'demo_mode.dart';
+
+/// Drop-in replacement for [AuthService] that never touches
+/// `FirebaseAuth.instance`. Used as the override for
+/// [authServiceProvider] in demo mode so the AuthService constructor
+/// can be invoked safely even when Firebase init was skipped.
+///
+/// The screenshots build hit a Riverpod quirk where the StreamProvider
+/// override for `authStateProvider` was silently bypassed at runtime —
+/// the original closure (which reads `ref.watch(authServiceProvider)`)
+/// ran, constructed a real AuthService, and crashed at
+/// `FirebaseAuth.instance`. Overriding the service provider belt-and-
+/// braces the auth path regardless of which Riverpod override fires.
+class _DemoAuthService implements AuthService {
+  @override
+  Stream<User?> get authStateChanges => Stream<User?>.value(null);
+
+  @override
+  User? get currentUser => null;
+
+  @override
+  Future<UserCredential> signInWithGoogle() =>
+      throw UnimplementedError('Sign-in disabled in DEMO_MODE');
+
+  @override
+  Future<void> signOut() async {}
+
+  @override
+  // ignore: invalid_use_of_protected_member
+  noSuchMethod(Invocation invocation) => null;
+}
 
 /// List of overrides to apply to the ProviderScope when DEMO_MODE is on.
 ///
@@ -52,6 +83,12 @@ List<Override> get demoOverrides => [
       // a uid should use currentUidProvider (already overridden) and
       // the few that still read authStateProvider.value?.uid just
       // gracefully get null + no-op.
+      // authServiceProvider override is the load-bearing one — see
+      // _DemoAuthService doc above. authStateProvider's override goes
+      // alongside it but Riverpod doesn't always honour it; this
+      // makes the auth path safe even if Riverpod skips the
+      // StreamProvider override.
+      authServiceProvider.overrideWith((_) => _DemoAuthService()),
       authStateProvider
           .overrideWith((_) => Stream<User?>.value(null)),
       currentUidProvider.overrideWith((_) => kDemoUid),
