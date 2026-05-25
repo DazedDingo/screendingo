@@ -188,16 +188,12 @@ jobs:
             # The dart-defines mirror screenshots-real.yml's debug-build
             # step: real Firebase via AUTO_SIGN_IN_TOKEN + real TMDB key
             # so posters + external ratings render in captures.
-            flutter drive \
-              --driver=test_driver/integration_test.dart \
-              --target=integration_test/screenshots_test.dart \
-              -d emulator-5554 \
-              --no-pub \
-              --no-dds \
-              --dart-define=AUTO_SIGN_IN_TOKEN="$AUTO_SIGN_IN_TOKEN" \
-              --dart-define=TMDB_API_KEY="$TMDB_API_KEY" \
-              --dart-define=TRAKT_CLIENT_ID="$TRAKT_CLIENT_ID" \
-              || echo "::warning::flutter drive exited non-zero — partial captures may still be in screenshots/it/"
+            # Single-line `flutter drive` — the reactivecircus runner
+            # pipes each script line to a fresh `sh -c`, so backslash
+            # line-continuations don't work (the shell only sees the
+            # first line + a literal `\` as the target, hits "Target
+            # file '\' not found"). One long line it is.
+            flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d emulator-5554 --no-pub --no-dds --dart-define=AUTO_SIGN_IN_TOKEN="$AUTO_SIGN_IN_TOKEN" --dart-define=TMDB_API_KEY="$TMDB_API_KEY" --dart-define=TRAKT_CLIENT_ID="$TRAKT_CLIENT_ID" || echo "::warning::flutter drive exited non-zero — partial captures may still be in screenshots/it/"
             # Move successfully-captured PNGs into the top-level
             # screenshots/ dir so process_screenshots.py finds them with
             # the same glob the adb-screencap path uses. The driver writes

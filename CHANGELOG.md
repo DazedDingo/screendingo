@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.24 (2026-05-22)
+
+- **screenshots-real-it.yml: single-line `flutter drive` invocation.** v0.12.23 run failed with `Target file "\" not found.` — same fresh-`sh -c`-per-line gotcha as the if-then-fi block, applied to the backslash-continued `flutter drive` command. Each backslash-terminated line went to its own shell; the runner only saw `flutter drive \` (with literal backslash → "target file is \"). One-lined the whole `flutter drive` command + all dart-defines onto a single line.
+
 ## 0.12.23 (2026-05-22)
 
 - **screenshots-real-it.yml: convert multi-line if-then-fi to one-liners.** First run of the integration_test workflow (26418158149) failed with `sh: Syntax error: end of file unexpected (expecting "fi")` — the reactivecircus emulator-runner action pipes each script line to a fresh `sh -c`, so the multi-line secret-validation `if-then-fi` blocks got split across separate shells. Same gotcha that hit the adb-screencap path in round 3 of `screenshots-real.yml`. Fix: `[ -n "$X" ] || { echo "err"; exit 1; }` one-liner for each secret check, single-line `&& ... || true` pattern for the cp loop.
