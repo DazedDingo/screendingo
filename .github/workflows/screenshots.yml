@@ -131,6 +131,11 @@ jobs:
           disable-animations: true
           script: |
             mkdir -p screenshots
+            # Crank the logcat ring buffer to 16M so the Flutter stack
+            # trace + our developer.log diagnostics survive ~40s of
+            # captures + Android system noise. Default 256KB was rolling
+            # over before the post-run dump could capture our errors.
+            adb logcat -G 16M
             # Install the demo-mode APK.
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
             # Wait for the system to settle after install — cold-boot
@@ -155,8 +160,12 @@ jobs:
             sleep 10; adb exec-out screencap -p > screenshots/03-at-25s.png
             sleep 15; adb exec-out screencap -p > screenshots/04-at-40s.png
             # Diagnostics — bundled with the screenshots so we can see
-            # what the app process actually did.
+            # what the app process actually did. Capture the full buffer
+            # (no truncation) AND a flutter-only filtered variant so we
+            # don't have to grep through Android system noise.
             adb logcat -d > screenshots/logcat.txt 2>&1 || true
+            adb logcat -d *:S flutter:V wn.boot:V wn.errorWidget:V wn.appCheck:V \
+              > screenshots/logcat-flutter.txt 2>&1 || true
             adb shell ps -A 2>/dev/null | grep -i watchnext > screenshots/app-process.txt || true
             adb shell dumpsys activity activities 2>/dev/null | head -200 > screenshots/dumpsys.txt || true
             ls -la screenshots/

@@ -44,31 +44,49 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Diagnostic — confirm kDemoMode value at runtime. Routed through
+  // developer.log so it's reliably captured in adb logcat even when the
+  // logcat buffer is rolling. Lets the CI screenshots workflow verify
+  // the --dart-define=DEMO_MODE=true flag is actually being honoured.
+  developer.log('wn.boot kDemoMode=$kDemoMode', name: 'wn.boot');
   // Replace the default gray rectangle shown on build failures in release
-  // mode — we'd rather see the actual error than a blank screen.
-  ErrorWidget.builder = (details) => Material(
-        color: const Color(0xFF1A1A1A),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
-                const SizedBox(height: 12),
-                const Text('Something went wrong rendering this screen',
-                    style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                Text(
-                  details.exceptionAsString(),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ],
-            ),
+  // mode — we'd rather see the actual error than a blank screen. Also
+  // push the exception + stack into developer.log so adb logcat captures
+  // it; relying on Flutter's default FlutterError.onError was unreliable
+  // in the DEMO_MODE screenshot runs (multiple errors silently absent
+  // from logcat, likely rolled out of the 10240-line buffer before
+  // adb logcat -d dumped it).
+  ErrorWidget.builder = (details) {
+    developer.log(
+      'ErrorWidget invoked: ${details.exceptionAsString()}',
+      name: 'wn.errorWidget',
+      error: details.exception,
+      stackTrace: details.stack,
+    );
+    return Material(
+      color: const Color(0xFF1A1A1A),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+              const SizedBox(height: 12),
+              const Text('Something went wrong rendering this screen',
+                  style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text(
+                details.exceptionAsString(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    );
+  };
   // DEMO_MODE: skip Firebase init entirely. With the dummy
   // google-services.json the screenshots workflow uses, Firebase init +
   // App Check + FCM heartbeat-registration all deadlock waiting for
