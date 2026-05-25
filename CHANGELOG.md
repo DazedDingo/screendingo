@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.26 (2026-05-22)
+
+- **`process_screenshots.py`: blot out Flutter's DEBUG ribbon.** Debug APKs render a red diagonal "DEBUG" banner in the top-right corner of every screen. Cropper now overlays a right-triangle of sampled AppBar color (legs = 152 px) over the corner — diagonal hypotenuse means the AppBar's `?` help icon (~(1030, 90)) survives the blot while the ribbon (which sits above the hypotenuse) is fully covered. Color is sampled per-image from a known-clean pixel (8, 40) so it adapts to any theme accent.
+
 ## 0.12.25 (2026-05-22)
 
 - **`process_screenshots.py`: support integration_test surface captures (1080×N).** The cropper was hardcoded to expect 1080×2400 (adb screencap full framebuffer) and SKIPped everything else — integration_test produces 1080×2337 because `binding.takeScreenshot()` captures the Flutter surface only, no status bar. Generalised: accept any 1080×N input where N ≥ 1920, auto-decide chrome trim by source height (full system framebuffer at 2400 trims both top + bottom; integration_test surface at <2400 just trims the nav pill if there's headroom). v0.12.24 produced 5 distinct populated screens (Home / Filters / TitleDetail / Library / Profile) — all crop cleanly to 1080×1920 with this fix.

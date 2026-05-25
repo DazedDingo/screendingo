@@ -34,7 +34,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # Pixel 7 emulator chrome heights for adb screencap (1080×2400 full
 # system framebuffer including system status bar + gesture nav). Fixed
@@ -47,6 +47,25 @@ NAV_PILL_PX = 60
 EXPECTED_W = 1080
 PLAY_W = 1080
 PLAY_H = 1920  # 9:16 ratio Play Console enforces
+
+# Flutter's debug-build red "DEBUG" ribbon sits diagonally in the
+# top-right corner of every screen in debug APKs. The screenshots
+# pipelines build debug APKs (no release-signing setup needed for the
+# CI runner), so the ribbon shows up on every capture. The ribbon is
+# a 45° triangle ~140 px on each leg — we cover it by painting a
+# right triangle of the same dimensions over the corner, leaving the
+# AppBar's `?` help icon (which sits just BELOW the ribbon's
+# hypotenuse) intact.
+#
+# A rectangle blot of the same dimensions would clip the `?` icon at
+# ~(1030, 90). The diagonal hypotenuse from (940, 0) to (1080, 140)
+# cuts at x + y = 1220, which leaves the icon (sum ~1120) safely in
+# the kept region.
+DEBUG_RIBBON_LEG_PX = 152
+# Pixel to sample for the cover color — column near the left edge but
+# clear of the wordmark, row near the top of the AppBar. Captured
+# screenshots show this region is uniform AppBar background.
+SAMPLE_X, SAMPLE_Y = 8, 40
 
 
 def crop_one(src: Path, out_dir: Path) -> bool:
@@ -96,6 +115,23 @@ def crop_one(src: Path, out_dir: Path) -> bool:
     # the rec list, which is acceptable — they aren't the selling content.
     play = loose.crop((0, 0, PLAY_W, PLAY_H))
     assert play.size == (PLAY_W, PLAY_H), play.size
+
+    # Blot the debug ribbon by overlaying a sampled-color RIGHT
+    # TRIANGLE in the top-right corner. Triangle (not rectangle) so
+    # the AppBar's `?` help icon — which sits just BELOW the ribbon's
+    # hypotenuse — survives the blot.
+    cover_color = play.getpixel((SAMPLE_X, SAMPLE_Y))
+    draw = ImageDraw.Draw(play)
+    leg = DEBUG_RIBBON_LEG_PX
+    draw.polygon(
+        [
+            (PLAY_W - leg, 0),       # top-left of triangle
+            (PLAY_W, 0),              # top-right (corner)
+            (PLAY_W, leg),            # bottom-right (down the edge)
+        ],
+        fill=cover_color,
+    )
+
     play_path = out_dir / f"{src.stem}-1080x1920.png"
     play.save(play_path, format="PNG", optimize=True)
 
