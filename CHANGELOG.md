@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.15 (2026-05-22)
+
+- **screenshots-real.yml: inline KEYCODE_BACK per line.** Round 3 (run 26412269058) failed because the `cap()` shell function I defined didn't carry over between lines — the GHA reactivecircus emulator runner pipes each script line to a fresh `sh -c`, so function defs evaporate. Inlined the dismiss-then-capture into each line directly. Captures still triggered ANR-dialog-suppression as intended (hide_error_dialogs already set in earlier step survives).
+
 ## 0.12.14 (2026-05-22)
 
 - **screenshots-real.yml: hide app ANR dialog at OS level.** Round 2 of the real-Firebase screenshot pipeline produced a populated Home (real Better Call Saul as Tonight's Pick with IMDB 9.0 + AI blurb, Upcoming-for-you carousel with real TMDB posters) but every frame had an `ScreenDingo isn't responding` dialog overlay. 11 Firestore listeners + ~19 TMDB image loads + 12 OMDb CF calls all firing concurrently saturated the single-core emulator main thread. App rendered fine behind the dialog. Fix: `adb shell settings put global hide_error_dialogs 1` to suppress all ANR/crash dialogs at the OS level + a pre-screencap `KEYCODE_BACK` helper as defence-in-depth. App keeps running normally; only the dialog goes away.
