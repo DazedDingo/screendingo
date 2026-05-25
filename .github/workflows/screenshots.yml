@@ -164,8 +164,12 @@ jobs:
             # (no truncation) AND a flutter-only filtered variant so we
             # don't have to grep through Android system noise.
             adb logcat -d > screenshots/logcat.txt 2>&1 || true
-            adb logcat -d *:S flutter:V wn.boot:V wn.errorWidget:V wn.appCheck:V \
-              > screenshots/logcat-flutter.txt 2>&1 || true
+            # WN_BOOT / WN_ERR / WN_ERR_STACK are emitted via
+            # debugPrint() from main.dart — fast-path filter to surface
+            # just our app-side diagnostics without grepping through
+            # the full logcat.
+            grep -E "WN_BOOT|WN_ERR|flutter :" screenshots/logcat.txt \
+              > screenshots/logcat-app.txt 2>&1 || true
             adb shell ps -A 2>/dev/null | grep -i watchnext > screenshots/app-process.txt || true
             adb shell dumpsys activity activities 2>/dev/null | head -200 > screenshots/dumpsys.txt || true
             ls -la screenshots/
