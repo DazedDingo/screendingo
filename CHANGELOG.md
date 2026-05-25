@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.14 (2026-05-22)
+
+- **screenshots-real.yml: hide app ANR dialog at OS level.** Round 2 of the real-Firebase screenshot pipeline produced a populated Home (real Better Call Saul as Tonight's Pick with IMDB 9.0 + AI blurb, Upcoming-for-you carousel with real TMDB posters) but every frame had an `ScreenDingo isn't responding` dialog overlay. 11 Firestore listeners + ~19 TMDB image loads + 12 OMDb CF calls all firing concurrently saturated the single-core emulator main thread. App rendered fine behind the dialog. Fix: `adb shell settings put global hide_error_dialogs 1` to suppress all ANR/crash dialogs at the OS level + a pre-screencap `KEYCODE_BACK` helper as defence-in-depth. App keeps running normally; only the dialog goes away.
+
 ## 0.12.13 (2026-05-22)
 
 - **screenshots-real.yml: pre-launch system-dialog suppression.** Round 1 produced a populated Home screen behind two blocking overlays: a "Pixel Launcher isn't responding" ANR + Android 13's `POST_NOTIFICATIONS` runtime permission prompt. Fixed by pre-granting `POST_NOTIFICATIONS` to `com.household.watchnext` via `adb shell pm grant` (no-op pre-Android 13), disabling Pixel Launcher via `pm disable-user com.google.android.apps.nexuslauncher --user 0` (we launch via `am start -n` so the launcher is unused), and swapping the launch invocation from `monkey` to `am start -n com.household.watchnext/.LauncherClassic`. Added a defensive `KEYCODE_BACK` after launch as belt-and-braces.
