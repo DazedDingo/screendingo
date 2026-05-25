@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'firebase_options.dart';
+import 'demo/demo_mode.dart';
+import 'demo/demo_overrides.dart';
 import 'providers/ask_ai_placement_provider.dart';
 import 'providers/onboarding_provider.dart';
 import 'providers/theme_provider.dart';
@@ -122,6 +124,10 @@ void main() async {
           .overrideWith((_) => UpNextStyleController(prefs)),
       onboardingDoneProvider
           .overrideWith((_) => OnboardingController(prefs)),
+      // DEMO_MODE: swap every Firestore-coupled provider for curated mock
+      // data so the screenshot APK renders a populated household without
+      // any auth flow or backend dependency. No-op for production builds.
+      if (kDemoMode) ...demoOverrides,
     ],
     child: const ScreenDingoApp(),
   ));

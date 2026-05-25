@@ -1,0 +1,66 @@
+/// Riverpod overrides applied when [kDemoMode] is true (see demo_mode.dart).
+///
+/// Each Firestore-coupled provider listed in
+/// `project_screendingo_session_handoff_2026_05_25.md` gets a hardcoded
+/// mock stream/value. Downstream "derived" providers (e.g.
+/// `watchedKeysProvider` derives from `watchEntriesProvider`) are left
+/// alone — they compute correctly from the overridden sources.
+///
+/// Filter providers (genre, year, runtime, awards, sort, curated,
+/// includeWatched, mode) are also left alone; they start at their
+/// defaults and the screenshot suite (Phase 3) can drive them
+/// programmatically if a screen needs a specific filter state.
+library;
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../providers/auth_provider.dart';
+import '../providers/household_provider.dart';
+import '../providers/not_interested_provider.dart';
+import '../providers/ratings_provider.dart';
+import '../providers/recommendations_provider.dart';
+import '../providers/rewatch_provider.dart';
+import '../providers/stats_provider.dart' show tasteProfileProvider;
+import '../providers/tonights_pick_provider.dart';
+import '../providers/upcoming_provider.dart';
+import '../providers/upnext_provider.dart';
+import '../providers/watch_entries_provider.dart';
+import '../providers/watchlist_provider.dart';
+import 'demo_data.dart';
+import 'demo_mode.dart';
+
+/// List of overrides to apply to the ProviderScope when DEMO_MODE is on.
+///
+/// Wired in `main.dart` like:
+///   ProviderScope(
+///     overrides: kDemoMode ? demoOverrides : [],
+///     child: const ScreenDingoApp(),
+///   )
+List<Override> get demoOverrides => [
+      // Auth + household — synthetic IDs so downstream providers don't
+      // gate-out on null. The router (app.dart) has a separate kDemoMode
+      // check that bypasses the FirebaseAuth.currentUser direct call.
+      currentUidProvider.overrideWith((_) => kDemoUid),
+      householdIdProvider.overrideWith((_) async => kDemoHouseholdId),
+
+      // Core Firestore-coupled streams — every provider that hits
+      // /households/{hh}/* gets a curated mock.
+      recommendationsProvider
+          .overrideWith((_) => Stream.value(demoRecommendations)),
+      watchEntriesProvider
+          .overrideWith((_) => Stream.value(demoWatchEntries)),
+      ratingsProvider.overrideWith((_) => Stream.value(demoRatings)),
+      watchlistProvider.overrideWith((_) => Stream.value(demoWatchlist)),
+      notInterestedProvider
+          .overrideWith((_) => Stream.value(demoNotInterested)),
+      tonightsPickProvider
+          .overrideWith((_) => Stream.value(demoTonightsPick)),
+      tasteProfileProvider
+          .overrideWith((_) => Stream.value(demoTasteProfile)),
+
+      // TMDB-sourced surfaces — no network in demo mode.
+      upcomingForYouProvider
+          .overrideWith((_) => Stream.value(demoUpcoming)),
+      upNextProvider.overrideWith((_) => Stream.value(demoUpNext)),
+      rewatchForYouProvider.overrideWith((_) => demoRewatch),
+    ];
