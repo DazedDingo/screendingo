@@ -21,16 +21,26 @@ private key". Download the JSON. The account needs:
 You can grant these via Google Cloud Console → IAM if the default
 service-account role isn't sufficient.
 
-### 2. Add four GitHub secrets
+### 2. Add the one new GitHub secret
+
+Three of the four secrets the workflow needs are already set on the
+repo from earlier work (`GOOGLE_SERVICES_JSON`, `TMDB_API_KEY`,
+`TRAKT_CLIENT_ID` — verify with `gh secret list`). Only one is new:
 
 Repo → Settings → Secrets and variables → Actions → "New repository secret":
 
 | Secret name                     | Value                                                                                                                                                                                                                                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Raw contents of the JSON file from step 1. Paste the whole `{...}` object. Don't add a trailing newline.                                                                                                                                                                                              |
-| `GOOGLE_SERVICES_JSON_B64`      | `base64 -w0 android/app/google-services.json` — the same one used locally + by the existing release workflow. Use `-w0` so the encoded string has no embedded line breaks.                                                                                                                            |
-| `TMDB_API_KEY`                  | Same v3 TMDB key already in `env.json` locally. The seed doesn't call TMDB, but the app does — without this, posters are blank in the screenshots.                                                                                                                                                    |
-| `TRAKT_CLIENT_ID`               | Same client id already in `env.json`. The app validates the dart-define at startup; an empty value would crash on the splash screen even though the screenshot run never actually opens the Trakt OAuth flow.                                                                                          |
+
+Faster path if you have `gh` CLI authenticated:
+
+```bash
+gh secret set FIREBASE_SERVICE_ACCOUNT_JSON < /path/to/serviceAccount.json -R DazedDingo/screendingo
+```
+
+(Pipes the file in via stdin, no newline gymnastics. Verify with
+`gh secret list -R DazedDingo/screendingo`.)
 
 ### 3. (Optional) Run the seed once locally to verify
 
