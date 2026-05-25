@@ -176,12 +176,41 @@ jobs:
             # diagnostics survive ~60s of capture + Android system noise.
             adb logcat -G 16M
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            # Cold-boot launcher settle time — same 10s grace as
-            # screenshots.yml (avoids the "Pixel Launcher isn't
-            # responding" ANR observed when launching too early).
+            # Pre-launch system-dialog suppression — round 1 of this
+            # workflow rendered a populated Home screen behind TWO
+            # blocking overlays: (a) "Pixel Launcher isn't responding"
+            # ANR, (b) the Android 13+ runtime POST_NOTIFICATIONS
+            # permission prompt. Fix both before launch so screenshots
+            # are clean:
+            #
+            # 1. Grant POST_NOTIFICATIONS so FCM registration in
+            #    notification_service.dart doesn't trigger the prompt.
+            #    Granting an unrequested permission is a no-op on
+            #    Android < 13 — defence-in-depth, no harm.
+            # 2. Disable Pixel Launcher entirely. The launcher only
+            #    matters for the home-screen tap UX; we launch via
+            #    `am start` directly so the launcher is unused — and
+            #    its ANR can't overlay our app if it isn't running.
+            #    pm disable-user is reversible and contained to user 0.
+            adb shell pm grant com.household.watchnext android.permission.POST_NOTIFICATIONS || true
+            adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher || true
+            # Cold-boot settle time — kept the 10s grace from round 1
+            # even though the launcher's now disabled (some system
+            # services still finalise indexing in the same window).
             sleep 10
             adb logcat -c
-            adb shell monkey -p com.household.watchnext -c android.intent.category.LAUNCHER 1
+            # Launch via `am start -n` against the Classic activity-alias
+            # (default-shipped per AppIconSwitcher, gotcha 49). Direct
+            # activity launch is cleaner than monkey here because monkey
+            # routes through the launcher's intent resolver — which we
+            # just disabled.
+            adb shell am start -n com.household.watchnext/.LauncherClassic
+            # Defensive dialog dismiss — if any lingering system dialog
+            # slipped through (notification permission on a slow cold
+            # boot, e.g.), KEYCODE_BACK closes it without affecting the
+            # foreground app.
+            sleep 2
+            adb shell input keyevent KEYCODE_BACK || true
             # Progressive snapshots so we can see splash → auth-sign-in
             # → /home transitions if the app boots correctly, or pinpoint
             # where it stalls if not. The signInWithCustomToken round
@@ -189,7 +218,7 @@ jobs:
             # the app should be settled on Home with the seeded household
             # rendered. The later snapshots give Firestore listeners and
             # TMDB poster loads time to land.
-            sleep 5;  adb exec-out screencap -p > screenshots/01-at-5s.png
+            sleep 3;  adb exec-out screencap -p > screenshots/01-at-5s.png
             sleep 10; adb exec-out screencap -p > screenshots/02-at-15s.png
             sleep 15; adb exec-out screencap -p > screenshots/03-at-30s.png
             sleep 15; adb exec-out screencap -p > screenshots/04-at-45s.png

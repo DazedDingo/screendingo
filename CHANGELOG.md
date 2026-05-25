@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.13 (2026-05-22)
+
+- **screenshots-real.yml: pre-launch system-dialog suppression.** Round 1 produced a populated Home screen behind two blocking overlays: a "Pixel Launcher isn't responding" ANR + Android 13's `POST_NOTIFICATIONS` runtime permission prompt. Fixed by pre-granting `POST_NOTIFICATIONS` to `com.household.watchnext` via `adb shell pm grant` (no-op pre-Android 13), disabling Pixel Launcher via `pm disable-user com.google.android.apps.nexuslauncher --user 0` (we launch via `am start -n` so the launcher is unused), and swapping the launch invocation from `monkey` to `am start -n com.household.watchnext/.LauncherClassic`. Added a defensive `KEYCODE_BACK` after launch as belt-and-braces.
+
 ## 0.12.12 (2026-05-22)
 
 - **`scripts/process_screenshots.py`** — crops Pixel 7 emulator captures (1080×2400, 9:20 — too tall for Play Console's [9:16, 16:9] aspect gate) down to Play-Store-ready 1080×1920 (9:16) frames. Strips status bar + nav pill (pure chrome) then bottom-crops to 9:16, preserving the AppBar + hero (Tonight's Pick, action row, top rec cards) over the lower rec rows. Also emits a 1080×2252 "loose" variant in case Play accepts the taller frame.
