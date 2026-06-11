@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.27 (2026-06-11)
+
+- **`ScreenDingoLogo`: gradient now covers the descender of the "g".** The shared `TextStyle` set `height: 1.0`, which collapses the line box to the EM box; the "g" descender then paints below the Text's render bounds. `ShaderMask` computes `maskRect` off `child.size`, so the descender falls outside the shader and renders in the child's base white instead of the accent gradient — visible as a white tail on the "g". Dropped `height` so default line metrics include the descender. Added `test/widgets/screendingo_logo_test.dart` to pin `style.height == null` against accidental re-introduction.
+
 ## 0.12.26 (2026-05-22)
 
 - **`process_screenshots.py`: blot out Flutter's DEBUG ribbon.** Debug APKs render a red diagonal "DEBUG" banner in the top-right corner of every screen. Cropper now overlays a right-triangle of sampled AppBar color (legs = 152 px) over the corner — diagonal hypotenuse means the AppBar's `?` help icon (~(1030, 90)) survives the blot while the ribbon (which sits above the hypotenuse) is fully covered. Color is sampled per-image from a known-clean pixel (8, 40) so it adapts to any theme accent.
