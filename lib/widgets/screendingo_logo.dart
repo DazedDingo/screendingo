@@ -50,11 +50,12 @@ class _ScreenDingoLogoState extends State<ScreenDingoLogo>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Leave `height` unset — `height: 1.0` clips the "g" descender outside
+    // ShaderMask.maskRect, so the bottom of the g renders white not gradient.
     final textStyle = TextStyle(
       fontSize: widget.fontSize,
       fontWeight: widget.fontWeight,
       letterSpacing: 0.2,
-      height: 1.0,
     );
     return Row(
       mainAxisSize: MainAxisSize.min,
