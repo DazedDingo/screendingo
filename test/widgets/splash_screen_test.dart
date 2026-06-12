@@ -16,7 +16,7 @@ void main() {
       expect(find.byType(ScreenDingoLogo), findsOneWidget);
       expect(find.text('Screen'), findsOneWidget);
       expect(find.text('Dingo'), findsOneWidget);
-      expect(find.text('by DazedDingo'), findsOneWidget);
+      expect(find.text('by DazedDingo'), findsNothing);
       // The launcher-icon slot above the wordmark — fallbacks to the
       // shipped Classic icon until the dedicated reel+dingo asset lands.
       expect(find.byType(Image), findsOneWidget);

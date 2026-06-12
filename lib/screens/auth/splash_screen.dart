@@ -153,17 +153,6 @@ class _LogoLockup extends StatelessWidget {
         _SplashIcon(),
         SizedBox(height: 14),
         ScreenDingoLogo(fontSize: 52, fontWeight: FontWeight.w800),
-        SizedBox(height: 8),
-        Text(
-          'by DazedDingo',
-          style: TextStyle(
-            fontSize: 13,
-            letterSpacing: 1.2,
-            fontStyle: FontStyle.italic,
-            color: Colors.white70,
-            shadows: [Shadow(color: Colors.black87, blurRadius: 6)],
-          ),
-        ),
       ],
     );
   }

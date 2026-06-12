@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.28 (2026-06-12)
+
+- **`SplashScreen`: drop the "by DazedDingo" signature.** Wordmark + launcher icon already establish the brand on entry; the italic signature underneath read as visual clutter on first open. Removed the `Text` + the `SizedBox(height: 8)` spacer above it from `_LogoLockup`. Splash widget test updated to assert the string is absent (`findsNothing`) so a future paste-back gets caught. Settings page still carries the "DazedDingo" signature per the app's settings-page convention.
+
 ## 0.12.27 (2026-06-11)
 
 - **`ScreenDingoLogo`: gradient now covers the descender of the "g".** The shared `TextStyle` set `height: 1.0`, which collapses the line box to the EM box; the "g" descender then paints below the Text's render bounds. `ShaderMask` computes `maskRect` off `child.size`, so the descender falls outside the shader and renders in the child's base white instead of the accent gradient — visible as a white tail on the "g". Dropped `height` so default line metrics include the descender. Added `test/widgets/screendingo_logo_test.dart` to pin `style.height == null` against accidental re-introduction.
