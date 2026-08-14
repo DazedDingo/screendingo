@@ -1,5 +1,8 @@
 import {
   buildFcmDataPayload,
+  collectUpNextShows,
+  SourceEntry,
+  SourceWatchlistRow,
   daysBetweenUtc,
   episodeLabel,
   episodeUri,
@@ -160,5 +163,62 @@ describe("buildFcmDataPayload", () => {
     for (const v of Object.values(out)) {
       expect(typeof v).toBe("string");
     }
+  });
+});
+
+describe("collectUpNextShows", () => {
+  const entry = (
+    tmdbId: number,
+    o: Partial<SourceEntry> = {},
+  ): SourceEntry => ({
+    tmdbId,
+    title: o.title ?? `Show ${tmdbId}`,
+    posterPath: o.posterPath ?? null,
+    inProgressStatus: o.inProgressStatus ?? null,
+    watchedByAny: o.watchedByAny ?? false,
+  });
+  const saved = (tmdbId: number): SourceWatchlistRow => ({
+    tmdbId,
+    title: `Saved ${tmdbId}`,
+    posterPath: null,
+  });
+
+  test("watching entries always included", () => {
+    const out = collectUpNextShows(
+      [entry(1, { inProgressStatus: "watching" })],
+      [],
+    );
+    expect(out.map((s) => s.tmdbId)).toEqual([1]);
+  });
+
+  test("watchlist rows join the pool", () => {
+    const out = collectUpNextShows([], [saved(2), saved(3)]);
+    expect(out.map((s) => s.tmdbId)).toEqual([2, 3]);
+  });
+
+  test("show in both sources dedupes to the entry (title from entry)", () => {
+    const out = collectUpNextShows(
+      [entry(4, { inProgressStatus: "watching", title: "Entry Title" })],
+      [saved(4)],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].title).toBe("Entry Title");
+  });
+
+  test("completed/dropped/watched entries veto their watchlist row", () => {
+    const out = collectUpNextShows(
+      [
+        entry(5, { inProgressStatus: "completed" }),
+        entry(6, { inProgressStatus: "dropped" }),
+        entry(7, { watchedByAny: true }),
+        entry(8),
+      ],
+      [saved(5), saved(6), saved(7), saved(8)],
+    );
+    expect(out.map((s) => s.tmdbId)).toEqual([8]);
+  });
+
+  test("empty both sides returns empty", () => {
+    expect(collectUpNextShows([], [])).toEqual([]);
   });
 });

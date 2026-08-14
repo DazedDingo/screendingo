@@ -7,9 +7,11 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:watchnext/models/watch_entry.dart';
+import 'package:watchnext/models/watchlist_item.dart';
 import 'package:watchnext/providers/tmdb_provider.dart';
 import 'package:watchnext/providers/upnext_provider.dart';
 import 'package:watchnext/providers/watch_entries_provider.dart';
+import 'package:watchnext/providers/watchlist_provider.dart';
 import 'package:watchnext/services/tmdb_service.dart';
 
 http.Response _json(Object payload) => http.Response(
@@ -35,14 +37,46 @@ WatchEntry _watchingTv(int tmdbId) {
   );
 }
 
+WatchEntry _tvEntry(
+  int tmdbId, {
+  String? status,
+  Map<String, bool> watchedBy = const {},
+}) {
+  return WatchEntry(
+    id: 'tv:$tmdbId',
+    mediaType: 'tv',
+    tmdbId: tmdbId,
+    title: 'Show $tmdbId',
+    inProgressStatus: status,
+    watchedBy: watchedBy,
+  );
+}
+
+WatchlistItem _saved(int tmdbId, {String mediaType = 'tv'}) {
+  return WatchlistItem(
+    id: 'shared:shared:$mediaType:$tmdbId',
+    mediaType: mediaType,
+    tmdbId: tmdbId,
+    title: 'Saved $tmdbId',
+    addedBy: 'u1',
+    addedAt: DateTime(2026, 1, 1),
+  );
+}
+
 ProviderContainer _container({
   required http.Client client,
   required List<WatchEntry> entries,
+  List<WatchlistItem> watchlist = const [],
 }) {
   final container = ProviderContainer(overrides: [
     tmdbServiceProvider.overrideWithValue(TmdbService(client: client)),
     watchEntriesProvider
         .overrideWith((_) => Stream.value(entries)),
+    // Raw stream feeds the provider's emitted-yet gate; the plain
+    // visible provider is overridden directly so tests don't need to
+    // fake out authState / view mode (scope rules have their own tests).
+    watchlistProvider.overrideWith((_) => Stream.value(watchlist)),
+    visibleWatchlistProvider.overrideWithValue(watchlist),
   ]);
   // upNextSummaryProvider is autoDispose — without an active listener it
   // gets disposed mid-load and the future read throws "disposed during
@@ -106,6 +140,127 @@ void main() {
       expect(out.first.number, 4);
       expect(out.first.daysUntilAir, 2);
       expect(out.first.episodeName, 'Big Reveal');
+    });
+
+    test('surfaces a watchlist TV show without marking it watching',
+        () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/150')) {
+          return _json({
+            'id': 150,
+            'name': 'Saved Show',
+            'poster_path': '/s.jpg',
+            'next_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 1,
+              'name': 'Premiere',
+              'air_date': _dateStr(3),
+            },
+          });
+        }
+        return http.Response('not mocked: ${req.url}', 404);
+      });
+      final container = _container(
+        client: client,
+        entries: const [],
+        watchlist: [_saved(150)],
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, hasLength(1));
+      expect(out.first.tmdbId, 150);
+      expect(out.first.season, 1);
+      expect(out.first.daysUntilAir, 3);
+    });
+
+    test('watchlist movies are ignored (Up Next stays TV-only)', () async {
+      var tvCalls = 0;
+      final client = MockClient((req) async {
+        tvCalls++;
+        return _json({});
+      });
+      final container = _container(
+        client: client,
+        entries: const [],
+        watchlist: [_saved(160, mediaType: 'movie')],
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, isEmpty);
+      expect(tvCalls, 0,
+          reason: 'a movie watchlist row should not trigger a TMDB fetch');
+    });
+
+    test('show both watching and watchlisted appears once', () async {
+      var tvCalls = 0;
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/170')) {
+          tvCalls++;
+          return _json({
+            'id': 170,
+            'name': 'Both Sources',
+            'next_episode_to_air': {
+              'season_number': 2,
+              'episode_number': 5,
+              'air_date': _dateStr(1),
+            },
+          });
+        }
+        return http.Response('not mocked: ${req.url}', 404);
+      });
+      final container = _container(
+        client: client,
+        entries: [_watchingTv(170)],
+        watchlist: [_saved(170)],
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, hasLength(1));
+      expect(tvCalls, 1, reason: 'deduped shows should fetch TMDB once');
+    });
+
+    test('watchlist show the household already finished stays out',
+        () async {
+      final client = MockClient((req) async => _json({
+            'id': 180,
+            'name': 'Finished',
+            'next_episode_to_air': {
+              'season_number': 4,
+              'episode_number': 1,
+              'air_date': _dateStr(2),
+            },
+          }));
+      final container = _container(
+        client: client,
+        entries: [
+          _tvEntry(180, watchedBy: const {'u1': true}),
+        ],
+        watchlist: [_saved(180)],
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, isEmpty,
+          reason: 'watched-by-a-member kills the watchlist eligibility');
+    });
+
+    test('watchlist show the household dropped stays out', () async {
+      final client = MockClient((req) async => _json({
+            'id': 190,
+            'name': 'Dropped',
+            'next_episode_to_air': {
+              'season_number': 2,
+              'episode_number': 1,
+              'air_date': _dateStr(2),
+            },
+          }));
+      final container = _container(
+        client: client,
+        entries: [_tvEntry(190, status: 'dropped')],
+        watchlist: [_saved(190)],
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, isEmpty);
     });
 
     test('drops shows whose next episode is more than 7 days out', () async {
@@ -629,6 +784,70 @@ void main() {
       final summary = await container.read(upNextSummaryProvider.future);
       expect(summary.trackedShowCount, 1);
       expect(summary.next, isNull);
+    });
+
+    test('counts watchlist TV shows in trackedShowCount', () async {
+      final client = MockClient((req) async => _json({
+            'id': 950,
+            'name': 'Whatever',
+            'next_episode_to_air': null,
+          }));
+      final container = _container(
+        client: client,
+        entries: [_watchingTv(950)],
+        watchlist: [_saved(951), _saved(952, mediaType: 'movie')],
+      );
+      addTearDown(container.dispose);
+      final summary = await container.read(upNextSummaryProvider.future);
+      expect(summary.trackedShowCount, 2,
+          reason: 'watching + watchlist TV, movie row excluded');
+    });
+  });
+
+  group('upNextEligibleTvIds', () {
+    test('unions watching entries with watchlist TV, deduped', () {
+      final ids = upNextEligibleTvIds(
+        [_watchingTv(1), _watchingTv(2)],
+        [_saved(2), _saved(3)],
+      );
+      expect(ids.toSet(), {1, 2, 3});
+    });
+
+    test('ignores movie watchlist rows and movie entries', () {
+      final movieEntry = WatchEntry(
+        id: 'movie:5',
+        mediaType: 'movie',
+        tmdbId: 5,
+        title: 'Movie',
+        inProgressStatus: 'watching',
+      );
+      final ids = upNextEligibleTvIds(
+        [movieEntry],
+        [_saved(6, mediaType: 'movie')],
+      );
+      expect(ids, isEmpty);
+    });
+
+    test('finished/dropped/watched entries veto their watchlist row', () {
+      final ids = upNextEligibleTvIds(
+        [
+          _tvEntry(10, status: 'completed'),
+          _tvEntry(11, status: 'dropped'),
+          _tvEntry(12, watchedBy: const {'u2': true}),
+          _tvEntry(13, watchedBy: const {'u1': false}),
+        ],
+        [_saved(10), _saved(11), _saved(12), _saved(13)],
+      );
+      expect(ids, [13],
+          reason: 'false-valued watched_by flags are not "watched"');
+    });
+
+    test('entry without status or watched flags does not veto', () {
+      final ids = upNextEligibleTvIds(
+        [_tvEntry(20)],
+        [_saved(20)],
+      );
+      expect(ids, [20]);
     });
   });
 }

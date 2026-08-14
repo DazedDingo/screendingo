@@ -5,11 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/watch_entry.dart';
+import '../models/watchlist_item.dart';
 import 'tmdb_provider.dart';
 import 'watch_entries_provider.dart';
+import 'watchlist_provider.dart';
 
 /// One row in the "Up next" Home surface — the next episode of a show
-/// the household is mid-watch on, due within the visibility window.
+/// the household is mid-watch on or has saved to the watchlist, due
+/// within the visibility window.
 class UpNextEpisode {
   final int tmdbId;
   final String showTitle;
@@ -112,14 +115,49 @@ class _UpNextDiskCache {
   }
 }
 
+/// Distinct TMDB ids of the TV shows eligible for Up Next: every show
+/// the household is mid-watch on (`inProgressStatus == 'watching'` — the
+/// same signal Library → Watching uses), plus TV shows saved to the
+/// mode-visible watchlist. A watchlist show is skipped when the
+/// household is already done with it — a watch entry marked
+/// completed/dropped, or watched by either member (household-level
+/// "seen", mirroring `watchedKeysProvider`'s shared-Trakt rationale).
+/// Shows in both sources dedupe to one id.
+List<int> upNextEligibleTvIds(
+  List<WatchEntry> entries,
+  List<WatchlistItem> watchlist,
+) {
+  final ids = <int>{};
+  final finished = <int>{};
+  for (final e in entries) {
+    if (e.mediaType != 'tv') continue;
+    if (e.inProgressStatus == 'watching') {
+      ids.add(e.tmdbId);
+    } else if (e.inProgressStatus == 'completed' ||
+        e.inProgressStatus == 'dropped' ||
+        e.watchedBy.values.any((v) => v)) {
+      finished.add(e.tmdbId);
+    }
+  }
+  for (final w in watchlist) {
+    if (w.mediaType != 'tv') continue;
+    if (finished.contains(w.tmdbId)) continue;
+    ids.add(w.tmdbId);
+  }
+  return ids.toList();
+}
+
 /// Resolves the next episode for every TV show the household is
-/// currently mid-watch on, filters to those with an air date inside the
-/// visibility window, and ranks by soonest-airing.
+/// currently mid-watch on OR has saved to the watchlist, filters to
+/// those with an air date inside the visibility window, and ranks by
+/// soonest-airing.
 ///
-/// Source of "in progress" is `WatchEntry.inProgressStatus == 'watching'`
-/// — the same signal Library → Watching uses. Returns empty when the
-/// household isn't watching anything; the Home row collapses to nothing
-/// in that case so the screen stays the same as today.
+/// Sources (see [upNextEligibleTvIds]): `WatchEntry.inProgressStatus ==
+/// 'watching'` plus mode-visible watchlist TV rows — saving a show is
+/// enough to surface its premiere/next episode; the user doesn't have to
+/// mark it as watching first. Returns empty when neither source has an
+/// eligible show; the Home row collapses to nothing in that case so the
+/// screen stays the same as today.
 // Stream-based stale-while-revalidate: yields the disk cache (if any)
 // first so the row paints immediately on cold start, then fans the
 // per-show TMDB calls and yields fresh data. Without this, the FIRST
@@ -131,23 +169,25 @@ final upNextProvider =
   final cached = _UpNextDiskCache.load(prefs);
   if (cached != null) yield cached;
 
-  // Wait for the watchEntries Firestore stream to actually emit before
-  // making any "in-progress" decision. Returning early keeps the
-  // cached yield as the stream's last value until watchEntries lands
-  // its first emit.
+  // Wait for BOTH Firestore streams to actually emit before making any
+  // eligibility decision. Returning early keeps the cached yield as the
+  // stream's last value until the first emits land. The watchlist gate
+  // watches the raw stream (for the emitted-yet signal) while the list
+  // itself comes from visibleWatchlistProvider so Solo/Together scope
+  // rules stay defined in exactly one place.
   final entriesAsync = ref.watch(watchEntriesProvider);
-  if (entriesAsync.value == null) return;
+  final watchlistAsync = ref.watch(watchlistProvider);
+  if (entriesAsync.value == null || watchlistAsync.value == null) return;
   final entries = entriesAsync.value!;
-  final inProgressTv = entries
-      .where((e) => e.mediaType == 'tv' && e.inProgressStatus == 'watching')
-      .toList();
-  if (inProgressTv.isEmpty) {
-    // Empty in-progress is ambiguous on cold start: it can mean
+  final watchlist = ref.watch(visibleWatchlistProvider);
+  final tvIds = upNextEligibleTvIds(entries, watchlist);
+  if (tvIds.isEmpty) {
+    // Empty eligibility is ambiguous on cold start: it can mean
     // "household has finished everything" OR "Firestore just emitted
     // its initial empty snapshot before the server payload arrives."
     // We can't tell them apart at this point. Bias toward keeping the
     // cached row visible — only yield/save empty when we don't have a
-    // non-empty cache to fall back to. The next watchEntries emit
+    // non-empty cache to fall back to. The next Firestore emit
     // will (probably) carry the real data and re-trigger the stream
     // with the non-empty branch, which writes through authoritatively.
     if (cached == null || cached.isEmpty) {
@@ -161,9 +201,9 @@ final upNextProvider =
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
 
-  final fetches = inProgressTv.map((e) async {
+  final fetches = tvIds.map((tmdbId) async {
     try {
-      final show = await tmdb.tvShow(e.tmdbId);
+      final show = await tmdb.tvShow(tmdbId);
       final next = show['next_episode_to_air'] as Map<String, dynamic>?;
       if (next == null) return null;
       final airDateStr = next['air_date'] as String?;
@@ -176,7 +216,7 @@ final upNextProvider =
         return null;
       }
       return UpNextEpisode(
-        tmdbId: e.tmdbId,
+        tmdbId: tmdbId,
         showTitle: (show['name'] as String?) ?? '',
         showPosterPath: show['poster_path'] as String?,
         season: (next['season_number'] as num?)?.toInt() ?? 0,
@@ -201,9 +241,11 @@ final upNextProvider =
 });
 
 /// Lightweight summary used by Profile → Insights as a "feature health"
-/// line. Reports total in-progress TV count + the closest upcoming
-/// episode (so the user can sanity-check that the Home row's silence
-/// reflects "nothing scheduled" rather than "feature broken").
+/// line. Reports the total tracked TV count (in-progress + eligible
+/// watchlist shows, deduped — same [upNextEligibleTvIds] source the Home
+/// row uses) + the closest upcoming episode (so the user can
+/// sanity-check that the Home row's silence reflects "nothing
+/// scheduled" rather than "feature broken").
 class UpNextSummary {
   final int trackedShowCount;
   final UpNextEpisode? next;
@@ -215,9 +257,8 @@ final upNextSummaryProvider =
     FutureProvider.autoDispose<UpNextSummary>((ref) async {
   final entriesAsync = ref.watch(watchEntriesProvider);
   final entries = entriesAsync.value ?? const <WatchEntry>[];
-  final trackedCount = entries
-      .where((e) => e.mediaType == 'tv' && e.inProgressStatus == 'watching')
-      .length;
+  final watchlist = ref.watch(visibleWatchlistProvider);
+  final trackedCount = upNextEligibleTvIds(entries, watchlist).length;
   final upcoming = await ref.watch(upNextProvider.future);
   return UpNextSummary(
     trackedShowCount: trackedCount,
