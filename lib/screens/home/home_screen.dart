@@ -51,7 +51,7 @@ import '../../widgets/year_range_slider.dart';
 
 const _homeHelp =
     'ScreenDingo picks something to watch that works for both of you.\n\n'
-    '• Up next — appears above Tonight\'s Pick when an in-progress show has a new episode airing in the next week. Hidden whenever there\'s nothing scheduled.\n'
+    '• Up next — appears above Tonight\'s Pick when a show you\'re watching or have saved to the watchlist has an episode airing in the next week. Hidden whenever there\'s nothing scheduled.\n'
     '• Tonight\'s Pick — the top scored title. Tap "Let\'s watch this" to open it, or "Not tonight" to skip for this session.\n'
     '• Recommended for you — the rest of the ranked list. Tap any to see details.\n'
     '• Search — the bar at the top of Home opens Discover for a TMDB-wide search across movies, TV, cast, and keywords (trending + browse-by-genre rows when the query is empty). Search ignores the filters below — those only narrow the recommendations on this screen.\n'

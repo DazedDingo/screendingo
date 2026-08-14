@@ -98,6 +98,65 @@ export function pickUpNextRows(
   return inWindow.slice(0, maxTiles);
 }
 
+export type SourceEntry = {
+  tmdbId: number;
+  title: string;
+  posterPath: string | null;
+  inProgressStatus: string | null;
+  /** True when any member's `watched_by` flag is set. */
+  watchedByAny: boolean;
+};
+
+export type SourceWatchlistRow = {
+  tmdbId: number;
+  title: string;
+  posterPath: string | null;
+};
+
+export type UpNextSourceShow = {
+  tmdbId: number;
+  title: string;
+  posterPath: string | null;
+};
+
+/** Pure: merge the two Up Next sources — TV watch entries + shared-scope
+ *  TV watchlist rows — into a deduped show list. Mirrors the client's
+ *  `upNextEligibleTvIds` in `lib/providers/upnext_provider.dart`:
+ *  entries with `in_progress_status == 'watching'` are always in;
+ *  watchlist rows join unless the household is already done with the
+ *  show (entry completed/dropped, or watched by any member). Solo-scope
+ *  watchlist rows never reach this function — the payload is pushed to
+ *  every member, so only shared rows are queried (same privacy contract
+ *  as the Stremio catalog). */
+export function collectUpNextShows(
+  entries: SourceEntry[],
+  watchlist: SourceWatchlistRow[],
+): UpNextSourceShow[] {
+  const out: UpNextSourceShow[] = [];
+  const seen = new Set<number>();
+  const finished = new Set<number>();
+  for (const e of entries) {
+    if (e.inProgressStatus === "watching") {
+      if (!seen.has(e.tmdbId)) {
+        seen.add(e.tmdbId);
+        out.push({ tmdbId: e.tmdbId, title: e.title, posterPath: e.posterPath });
+      }
+    } else if (
+      e.inProgressStatus === "completed" ||
+      e.inProgressStatus === "dropped" ||
+      e.watchedByAny
+    ) {
+      finished.add(e.tmdbId);
+    }
+  }
+  for (const w of watchlist) {
+    if (seen.has(w.tmdbId) || finished.has(w.tmdbId)) continue;
+    seen.add(w.tmdbId);
+    out.push({ tmdbId: w.tmdbId, title: w.title, posterPath: w.posterPath });
+  }
+  return out;
+}
+
 /** Build the FCM `data` map for a refresh push. Keys mirror the
  *  SharedPreferences slot names the AppWidgetProvider reads
  *  (`up_next_${i}_*` + `up_next_count`), so the background handler can
@@ -170,26 +229,60 @@ async function refreshHousehold(
   apiKey: string,
   today: string,
 ): Promise<{ pushed: number; errors: number }> {
-  // 1. In-progress TV entries
+  // 1. All TV entries (not just watching — completed/dropped/watched
+  //    state is needed to exclude finished shows the watchlist still
+  //    carries) + shared-scope TV watchlist rows.
   const entriesSnap = await db
     .collection(`households/${hhId}/watchEntries`)
     .where("media_type", "==", "tv")
-    .where("in_progress_status", "==", "watching")
     .get();
-  if (entriesSnap.empty) return { pushed: 0, errors: 0 };
+  const watchlistSnap = await db
+    .collection(`households/${hhId}/watchlist`)
+    .where("media_type", "==", "tv")
+    .where("scope", "==", "shared")
+    .get();
 
-  const rows: UpNextRow[] = [];
+  const entries: SourceEntry[] = [];
   for (const doc of entriesSnap.docs) {
     const data = doc.data();
     const tmdbId = data["tmdb_id"] as number | undefined;
     const title = data["title"] as string | undefined;
     if (!tmdbId || !title) continue;
-    const next = await fetchNextEpisode(tmdbId, apiKey);
+    const watchedBy =
+      (data["watched_by"] as Record<string, boolean> | undefined) ?? {};
+    entries.push({
+      tmdbId,
+      title,
+      posterPath: (data["poster_path"] as string | null | undefined) ?? null,
+      inProgressStatus:
+        (data["in_progress_status"] as string | null | undefined) ?? null,
+      watchedByAny: Object.values(watchedBy).some((v) => v === true),
+    });
+  }
+  const watchlistRows: SourceWatchlistRow[] = [];
+  for (const doc of watchlistSnap.docs) {
+    const data = doc.data();
+    const tmdbId = data["tmdb_id"] as number | undefined;
+    const title = data["title"] as string | undefined;
+    if (!tmdbId || !title) continue;
+    watchlistRows.push({
+      tmdbId,
+      title,
+      posterPath: (data["poster_path"] as string | null | undefined) ?? null,
+    });
+  }
+
+  const shows = collectUpNextShows(entries, watchlistRows);
+  if (shows.length === 0) return { pushed: 0, errors: 0 };
+
+  const rows: UpNextRow[] = [];
+  for (const show of shows) {
+    const next = await fetchNextEpisode(show.tmdbId, apiKey);
     if (!next) continue;
     rows.push({
-      tmdbId,
-      showTitle: title,
-      posterPath: (data["poster_path"] as string | null | undefined) ?? null,
+      tmdbId: show.tmdbId,
+      showTitle: show.title,
+      posterPath: show.posterPath,
       next,
       daysUntil: daysBetweenUtc(today, next.airDate),
     });

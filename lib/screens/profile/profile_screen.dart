@@ -581,7 +581,7 @@ class _UpNextHealthTile extends ConsumerWidget {
         final next = s.next;
         final String subtitle;
         if (tracking == 0) {
-          subtitle = 'No shows in progress';
+          subtitle = 'No shows in progress or saved';
         } else if (next == null) {
           subtitle = tracking == 1
               ? 'Tracking 1 show — nothing scheduled this week'

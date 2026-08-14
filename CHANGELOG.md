@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.12.28 (2026-06-12)
+## 0.12.29 (2026-08-14)
+
+- **Up Next now includes watchlist shows.** Saving a TV show to the watchlist is enough to surface its premiere / next episode in the Home "Up Next" row, the Profile health line, and the Android home-screen widget — you no longer have to mark it as watching first. Sources are merged and deduped via a shared `upNextEligibleTvIds` helper (client) / `collectUpNextShows` (CF): every `in_progress_status == 'watching'` entry plus mode-visible watchlist TV rows, minus shows the household is already done with (entry completed/dropped, or watched by either member). Movies on the watchlist stay out — Up Next remains an episode-air-date surface. Server-side, `refreshUpNextWidgetEvery6Hours` applies the same union but only over **shared-scope** watchlist rows (the FCM payload goes to both members, so solo saves stay private — same contract as the Stremio catalog); the daily `notifyNextEpisodeDaily` push deliberately stays watching-only so unstarted shows don't generate notifications. New coverage: 9 Dart tests (provider + pure helper + summary) and 5 Jest tests for the CF union helper.
 
 - **`SplashScreen`: drop the "by DazedDingo" signature.** Wordmark + launcher icon already establish the brand on entry; the italic signature underneath read as visual clutter on first open. Removed the `Text` + the `SizedBox(height: 8)` spacer above it from `_LogoLockup`. Splash widget test updated to assert the string is absent (`findsNothing`) so a future paste-back gets caught. Settings page still carries the "DazedDingo" signature per the app's settings-page convention.
 
