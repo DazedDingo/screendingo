@@ -175,6 +175,15 @@ class TraktService implements RatingPusher {
         'Authorization': 'Bearer $token',
       };
 
+  // Public-endpoint headers — no Authorization, no Bearer token. Trakt's
+  // search + episode lookups don't require a linked user, only the
+  // client id (not a secret — see class doc comment).
+  Map<String, String> _publicHeaders() => {
+        'Content-Type': 'application/json',
+        'trakt-api-version': _apiVersion,
+        'trakt-api-key': _clientId,
+      };
+
   Future<dynamic> _getJson(String path, String token, {Map<String, String>? query}) async {
     final uri = Uri.parse('$_api$path').replace(queryParameters: {
       'extended': 'full',
@@ -185,6 +194,66 @@ class TraktService implements RatingPusher {
       throw Exception('Trakt GET $path ${res.statusCode}: ${res.body}');
     }
     return json.decode(res.body);
+  }
+
+  /// GET against a public (unauthenticated) Trakt endpoint. Returns null on
+  /// any non-200 response, network exception, or malformed body instead of
+  /// throwing — callers (the Up Next air-time lookup) must never let a
+  /// single Trakt hiccup sink a recommendation row.
+  Future<dynamic> _getPublicJson(String path, {Map<String, String>? query}) async {
+    try {
+      final uri = Uri.parse('$_api$path').replace(queryParameters: query);
+      final res = await _client.get(uri, headers: _publicHeaders());
+      if (res.statusCode != 200) return null;
+      return json.decode(res.body);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Resolves a TMDB show id to its Trakt show id via Trakt's public
+  /// `/search/tmdb/{id}` lookup. Cache the result (it never changes) —
+  /// callers shouldn't re-resolve on every refresh. Returns null on any
+  /// failure (non-200, empty result, missing/malformed `show.ids.trakt`).
+  Future<int?> lookupShowTraktId(int tmdbId) async {
+    final data =
+        await _getPublicJson('/search/tmdb/$tmdbId', query: {'type': 'show'});
+    if (data is! List || data.isEmpty) return null;
+    for (final row in data) {
+      if (row is Map && row['type'] == 'show') {
+        final show = row['show'];
+        if (show is Map) {
+          final ids = show['ids'];
+          if (ids is Map) {
+            final trakt = ids['trakt'];
+            if (trakt is num) return trakt.toInt();
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Real broadcast time (UTC) for one episode, straight from Trakt —
+  /// TMDB only carries a date-only `air_date`. Returns null when Trakt
+  /// has no `first_aired` for the episode or the lookup fails outright.
+  Future<DateTime?> fetchEpisodeFirstAired({
+    required int traktShowId,
+    required int season,
+    required int number,
+  }) async {
+    final data = await _getPublicJson(
+      '/shows/$traktShowId/seasons/$season/episodes/$number',
+      query: {'extended': 'full'},
+    );
+    if (data is! Map) return null;
+    final firstAired = data['first_aired'];
+    if (firstAired is! String || firstAired.isEmpty) return null;
+    try {
+      return DateTime.parse(firstAired).toUtc();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<Map<String, dynamic>>> fetchHistory({

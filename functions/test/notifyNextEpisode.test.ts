@@ -1,10 +1,17 @@
 import {
   formatEpisodeLabel,
+  formatNotifyTitle,
   pickEntriesNeedingNotify,
   NextEpisodeInfo,
   Notification,
   WatchEntryRow,
 } from "../src/notifyNextEpisode";
+import {
+  candidateEpisodes,
+  pickBestAvailability,
+  relativeWhenLabel,
+  UPNEXT_LAG_HOURS,
+} from "../src/traktAirTime";
 
 function entry(overrides: Partial<WatchEntryRow> = {}): WatchEntryRow {
   return {
@@ -178,5 +185,143 @@ describe("formatEpisodeLabel", () => {
 
   test("zero is valid (TMDB S00 specials)", () => {
     expect(formatEpisodeLabel(0, 5)).toBe("S00E05");
+  });
+});
+
+describe("formatNotifyTitle", () => {
+  const now = new Date("2026-05-15T09:00:00.000Z");
+
+  test("hasTime undefined (date-only fallback) → 'out today'", () => {
+    expect(formatNotifyTitle(undefined, undefined, now)).toBe(
+      "New episode out today",
+    );
+  });
+
+  test("hasTime true, availableAt in the future → still 'out today'", () => {
+    const availableAt = new Date("2026-05-15T20:00:00.000Z");
+    expect(formatNotifyTitle(true, availableAt, now)).toBe(
+      "New episode out today",
+    );
+  });
+
+  test("hasTime true, availableAt already passed → 'out now'", () => {
+    const availableAt = new Date("2026-05-15T02:00:00.000Z");
+    expect(formatNotifyTitle(true, availableAt, now)).toBe(
+      "New episode is out now",
+    );
+  });
+
+  test("hasTime true, availableAt exactly now → 'out now' (boundary is inclusive)", () => {
+    expect(formatNotifyTitle(true, now, now)).toBe("New episode is out now");
+  });
+});
+
+// ─── Trakt-air-time pipeline (spec: real air time + availability lag) ──────
+//
+// `resolveTodayEpisode` (private orchestration in notifyNextEpisode.ts)
+// wires TMDB fetch + Trakt id-cache + `candidateEpisodes` +
+// `pickBestAvailability` together, gated to `daysUntil === 0` via
+// `windowAheadDays: 0, windowBehindDays: 0`. These tests exercise that
+// exact composition with a stubbed `resolveAirsAtUtc` in place of a real
+// Trakt HTTP call.
+describe("Trakt-air-time pipeline (notify gate: daysUntil === 0)", () => {
+  const now = new Date("2026-05-15T09:00:00.000Z");
+
+  function notifyWindow() {
+    return {
+      lagHours: UPNEXT_LAG_HOURS,
+      now,
+      windowAheadDays: 0,
+      windowBehindDays: 0,
+    };
+  }
+
+  test("Trakt path changes the label: date-only 'Out today' becomes 'Tomorrow ~08:00', which no longer qualifies for today's push", async () => {
+    const showJson = {
+      last_episode_to_air: null,
+      next_episode_to_air: {
+        season_number: 3,
+        episode_number: 4,
+        name: "Big Reveal",
+        air_date: "2026-05-15",
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    // Date-only fallback: qualifies for today's push.
+    const dateOnly = await pickBestAvailability(candidates, async () => null, notifyWindow());
+    expect(dateOnly).not.toBeNull();
+    expect(relativeWhenLabel(dateOnly!.availability.daysUntil)).toBe("Out today");
+
+    // Trakt resolves the real air time to tomorrow 02:00 UTC + 6h lag =
+    // tomorrow 08:00 UTC — no longer daysUntil === 0, so it's excluded from
+    // today's notify gate even though TMDB's raw air_date says today.
+    const withTrakt = await pickBestAvailability(
+      candidates,
+      async () => new Date("2026-05-16T02:00:00.000Z"),
+      notifyWindow(),
+    );
+    expect(withTrakt).toBeNull();
+  });
+
+  test("last_episode_to_air available today beats next_episode_to_air in 7 days", async () => {
+    const showJson = {
+      last_episode_to_air: {
+        season_number: 2,
+        episode_number: 9,
+        name: "Finale",
+        air_date: "2026-05-15",
+      },
+      next_episode_to_air: {
+        season_number: 3,
+        episode_number: 1,
+        name: "Premiere",
+        air_date: "2026-05-22",
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    const best = await pickBestAvailability(candidates, async () => null, notifyWindow());
+
+    expect(best).not.toBeNull();
+    expect(best!.candidate.season).toBe(2);
+    expect(best!.candidate.number).toBe(9);
+    expect(best!.availability.daysUntil).toBe(0);
+  });
+
+  test("Trakt lookup failing (404-equivalent → resolver returns null) degrades to the old date-only behaviour", async () => {
+    const showJson = {
+      last_episode_to_air: null,
+      next_episode_to_air: {
+        season_number: 1,
+        episode_number: 1,
+        name: "Pilot",
+        air_date: "2026-05-15",
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    const best = await pickBestAvailability(candidates, async () => null, notifyWindow());
+
+    expect(best).not.toBeNull();
+    expect(best!.availability.hasTime).toBe(false);
+    expect(best!.availability.daysUntil).toBe(0);
+  });
+
+  test("candidate airing tomorrow doesn't qualify for today's notify gate", async () => {
+    const showJson = {
+      last_episode_to_air: null,
+      next_episode_to_air: {
+        season_number: 1,
+        episode_number: 1,
+        name: null,
+        air_date: "2026-05-16",
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    const best = await pickBestAvailability(candidates, async () => null, notifyWindow());
+
+    expect(best).toBeNull();
   });
 });

@@ -83,26 +83,30 @@ void main() {
   });
 
   group('relativeWhenLabel', () {
+    // `_ep` builds an UpNextEpisode with no Trakt-resolved air time
+    // (hasAirTime == false), so these labels match the pre-Trakt
+    // date-only behaviour exactly.
     test('today → "Out today"', () {
-      expect(relativeWhenLabel(0), 'Out today');
+      expect(relativeWhenLabel(_ep(tmdbId: 1, daysUntilAir: 0)), 'Out today');
     });
 
     test('tomorrow → "Tomorrow"', () {
-      expect(relativeWhenLabel(1), 'Tomorrow');
+      expect(relativeWhenLabel(_ep(tmdbId: 1, daysUntilAir: 1)), 'Tomorrow');
     });
 
     test('positive days → "In Nd"', () {
-      expect(relativeWhenLabel(5), 'In 5d');
-      expect(relativeWhenLabel(7), 'In 7d');
+      expect(relativeWhenLabel(_ep(tmdbId: 1, daysUntilAir: 5)), 'In 5d');
+      expect(relativeWhenLabel(_ep(tmdbId: 1, daysUntilAir: 7)), 'In 7d');
     });
 
     test('yesterday → "Aired yesterday"', () {
-      expect(relativeWhenLabel(-1), 'Aired yesterday');
+      expect(relativeWhenLabel(_ep(tmdbId: 1, daysUntilAir: -1)),
+          'Aired yesterday');
     });
 
     test('further past → "Just aired"', () {
       // -2 falls into the negative-but-not-yesterday bucket.
-      expect(relativeWhenLabel(-3), 'Just aired');
+      expect(relativeWhenLabel(_ep(tmdbId: 1, daysUntilAir: -3)), 'Just aired');
     });
   });
 

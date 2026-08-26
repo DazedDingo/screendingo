@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -9,10 +10,29 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:watchnext/models/watch_entry.dart';
 import 'package:watchnext/models/watchlist_item.dart';
 import 'package:watchnext/providers/tmdb_provider.dart';
+import 'package:watchnext/providers/trakt_provider.dart';
+import 'package:watchnext/providers/up_next_lag_provider.dart';
 import 'package:watchnext/providers/upnext_provider.dart';
 import 'package:watchnext/providers/watch_entries_provider.dart';
 import 'package:watchnext/providers/watchlist_provider.dart';
 import 'package:watchnext/services/tmdb_service.dart';
+import 'package:watchnext/services/trakt_service.dart';
+
+// Test-only fixed-value controller — avoids needing a real SharedPreferences
+// round trip just to pin the lag for a single test (mirrors the
+// `_FixedModeController` pattern used in upcoming_provider_test.dart).
+class _FixedLagController extends StateNotifier<int>
+    implements UpNextLagController {
+  _FixedLagController(super.value);
+
+  @override
+  Future<void> set(int hours) async {
+    state = hours;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
 
 http.Response _json(Object payload) => http.Response(
       json.encode(payload),
@@ -67,9 +87,19 @@ ProviderContainer _container({
   required http.Client client,
   required List<WatchEntry> entries,
   List<WatchlistItem> watchlist = const [],
+  // Default: every Trakt call 404s, so tests that don't care about the
+  // real-air-time path keep the pre-Trakt date-only fallback behaviour.
+  http.Client? traktClient,
+  int lagHours = kUpNextLagHoursDefault,
 }) {
   final container = ProviderContainer(overrides: [
     tmdbServiceProvider.overrideWithValue(TmdbService(client: client)),
+    traktServiceProvider.overrideWithValue(TraktService(
+      client: traktClient ??
+          MockClient((_) async => http.Response('not found', 404)),
+      db: FakeFirebaseFirestore(),
+    )),
+    upNextLagHoursProvider.overrideWith((_) => _FixedLagController(lagHours)),
     watchEntriesProvider
         .overrideWith((_) => Stream.value(entries)),
     // Raw stream feeds the provider's emitted-yet gate; the plain
@@ -575,6 +605,12 @@ void main() {
 
       final container = ProviderContainer(overrides: [
         tmdbServiceProvider.overrideWithValue(TmdbService(client: client)),
+        traktServiceProvider.overrideWithValue(TraktService(
+          client: MockClient((_) async => http.Response('not found', 404)),
+          db: FakeFirebaseFirestore(),
+        )),
+        upNextLagHoursProvider
+            .overrideWith((_) => _FixedLagController(kUpNextLagHoursDefault)),
         watchEntriesProvider.overrideWith((_) => controller.stream),
       ]);
       final emitted = <List<UpNextEpisode>>[];
@@ -727,6 +763,194 @@ void main() {
       // No throw, no garbage cached entry — just the fresh result.
       expect(out, hasLength(1));
       expect(out.first.tmdbId, 100);
+    });
+
+    test(
+        'Trakt-resolved air time roundtrips through airsAtUtc/availableAt '
+        '(lag overridden to 0)', () async {
+      final airsAt = DateTime.now().toUtc().add(const Duration(days: 2));
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/100')) {
+          return _json({
+            'id': 100,
+            'name': 'Test Show',
+            'poster_path': '/p.jpg',
+            'next_episode_to_air': {
+              'season_number': 3,
+              'episode_number': 4,
+              'name': 'Big Reveal',
+              'air_date': _dateStr(2),
+            },
+          });
+        }
+        return http.Response('not mocked: ${req.url}', 404);
+      });
+      final traktClient = MockClient((req) async {
+        if (req.url.path.contains('/search/tmdb/100')) {
+          return _json([
+            {
+              'type': 'show',
+              'show': {'ids': {'trakt': 555}},
+            },
+          ]);
+        }
+        if (req.url.path.contains('/shows/555/seasons/3/episodes/4')) {
+          return _json({'first_aired': airsAt.toIso8601String()});
+        }
+        return http.Response('not mocked trakt: ${req.url}', 404);
+      });
+      final container = _container(
+        client: client,
+        entries: [_watchingTv(100)],
+        traktClient: traktClient,
+        lagHours: 0,
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, hasLength(1));
+      expect(out.first.hasAirTime, isTrue);
+      expect(out.first.airsAtUtc, isNotNull);
+      expect(out.first.airsAtUtc!.isAtSameMomentAs(airsAt), isTrue);
+      // lagHours=0 → availableAt is exactly airsAtUtc (in local time).
+      expect(out.first.availableAt.isAtSameMomentAs(airsAt), isTrue);
+    });
+
+    test(
+        'last_episode_to_air available today is preferred over '
+        'next_episode_to_air in 7 days', () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/210')) {
+          return _json({
+            'id': 210,
+            'name': 'Both Candidates',
+            'last_episode_to_air': {
+              'season_number': 2,
+              'episode_number': 9,
+              'name': 'Recent',
+              'air_date': _dateStr(0),
+            },
+            'next_episode_to_air': {
+              'season_number': 3,
+              'episode_number': 1,
+              'name': 'Future',
+              'air_date': _dateStr(7),
+            },
+          });
+        }
+        return http.Response('not mocked: ${req.url}', 404);
+      });
+      // Default trakt client (404 everywhere) — pure date-only fallback,
+      // so availableAt == airDate for both candidates.
+      final container =
+          _container(client: client, entries: [_watchingTv(210)]);
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, hasLength(1));
+      expect(out.first.season, 2);
+      expect(out.first.number, 9);
+      expect(out.first.daysUntilAir, 0);
+    });
+
+    test('Trakt 404 falls back to date-only behaviour (hasAirTime false)',
+        () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/220')) {
+          return _json({
+            'id': 220,
+            'name': 'No Trakt Match',
+            'next_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 1,
+              'air_date': _dateStr(2),
+            },
+          });
+        }
+        return http.Response('not mocked', 404);
+      });
+      final container =
+          _container(client: client, entries: [_watchingTv(220)]);
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out, hasLength(1));
+      expect(out.first.hasAirTime, isFalse);
+      expect(out.first.airsAtUtc, isNull);
+      expect(out.first.availableAt, out.first.airDate);
+    });
+
+    test(
+        'Trakt id cache — second provider run skips a repeat /search/tmdb '
+        'call', () async {
+      var searchCalls = 0;
+      final tmdbClient = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/230')) {
+          return _json({
+            'id': 230,
+            'name': 'Cached Id Show',
+            'next_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 1,
+              'air_date': _dateStr(2),
+            },
+          });
+        }
+        return http.Response('unexpected', 404);
+      });
+      final traktClient = MockClient((req) async {
+        if (req.url.path.contains('/search/tmdb/230')) {
+          searchCalls++;
+          return _json([
+            {
+              'type': 'show',
+              'show': {'ids': {'trakt': 777}},
+            },
+          ]);
+        }
+        if (req.url.path.contains('/shows/777/seasons/1/episodes/1')) {
+          return _json({'first_aired': null});
+        }
+        return http.Response('unexpected trakt: ${req.url}', 404);
+      });
+
+      final container1 = _container(
+        client: tmdbClient,
+        entries: [_watchingTv(230)],
+        traktClient: traktClient,
+      );
+      await container1.read(upNextProvider.future);
+      container1.dispose();
+
+      final container2 = _container(
+        client: tmdbClient,
+        entries: [_watchingTv(230)],
+        traktClient: traktClient,
+      );
+      addTearDown(container2.dispose);
+      await container2.read(upNextProvider.future);
+
+      expect(searchCalls, 1,
+          reason: 'second run should reuse the cached tmdb→trakt id');
+    });
+  });
+
+  group('UpNextEpisode.fromJson back-compat', () {
+    test('missing availableAt/airsAtUtc keys fall back to date-only shape',
+        () {
+      final legacy = {
+        'tmdbId': 42,
+        'showTitle': 'Legacy Cache Entry',
+        'showPosterPath': null,
+        'season': 2,
+        'number': 7,
+        'episodeName': 'Old Row',
+        'airDate': DateTime(2026, 4, 15).toIso8601String(),
+        'daysUntilAir': 3,
+        // No 'availableAt' / 'airsAtUtc' keys — simulates an on-disk cache
+        // entry written before this feature shipped.
+      };
+      final restored = UpNextEpisode.fromJson(legacy);
+      expect(restored.availableAt, restored.airDate);
+      expect(restored.airsAtUtc, isNull);
+      expect(restored.hasAirTime, isFalse);
     });
   });
 

@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/watch_entry.dart';
 import '../models/watchlist_item.dart';
 import 'tmdb_provider.dart';
+import 'trakt_provider.dart';
+import 'up_next_lag_provider.dart';
 import 'watch_entries_provider.dart';
 import 'watchlist_provider.dart';
 
@@ -20,15 +22,33 @@ class UpNextEpisode {
   final int season;
   final int number;
   final String? episodeName;
+
+  /// Date-only air date as reported by TMDB (network's local calendar
+  /// date — see the shared spec's Problem section). Kept for back-compat
+  /// and as the ultimate fallback when Trakt has no real air time.
   final DateTime airDate;
 
-  /// Days from today to the air date. 0 = airs today, 1 = tomorrow,
-  /// negative = aired in the recent past (still surfaces while within
+  /// The moment the episode is actually expected to be watchable:
+  /// `airsAtUtc + lag` when Trakt resolved a real air time, else
+  /// `airDate` at local midnight (today's date-only behaviour).
+  final DateTime availableAt;
+
+  /// Real broadcast instant (UTC) from Trakt's `first_aired`, or null
+  /// when Trakt couldn't resolve one (unlinked show, network error,
+  /// missing field) — in which case the row falls back to date-only.
+  final DateTime? airsAtUtc;
+
+  /// True when a real Trakt air time was resolved for this episode.
+  bool get hasAirTime => airsAtUtc != null;
+
+  /// Days from today to [availableAt]'s calendar date — "days until
+  /// available". 0 = available today, 1 = tomorrow, negative = became
+  /// available in the recent past (still surfaces while within
   /// `kUpNextRecentDays` so a "just dropped" episode doesn't disappear
   /// the moment its date passes).
   final int daysUntilAir;
 
-  const UpNextEpisode({
+  UpNextEpisode({
     required this.tmdbId,
     required this.showTitle,
     this.showPosterPath,
@@ -36,8 +56,10 @@ class UpNextEpisode {
     required this.number,
     this.episodeName,
     required this.airDate,
+    DateTime? availableAt,
+    this.airsAtUtc,
     required this.daysUntilAir,
-  });
+  }) : availableAt = availableAt ?? airDate;
 
   String get key => 'tv:$tmdbId';
 
@@ -49,19 +71,31 @@ class UpNextEpisode {
         'number': number,
         'episodeName': episodeName,
         'airDate': airDate.toIso8601String(),
+        'availableAt': availableAt.toIso8601String(),
+        'airsAtUtc': airsAtUtc?.toIso8601String(),
         'daysUntilAir': daysUntilAir,
       };
 
-  factory UpNextEpisode.fromJson(Map<String, dynamic> json) => UpNextEpisode(
-        tmdbId: (json['tmdbId'] as num).toInt(),
-        showTitle: json['showTitle'] as String? ?? '',
-        showPosterPath: json['showPosterPath'] as String?,
-        season: (json['season'] as num?)?.toInt() ?? 0,
-        number: (json['number'] as num?)?.toInt() ?? 0,
-        episodeName: json['episodeName'] as String?,
-        airDate: DateTime.parse(json['airDate'] as String),
-        daysUntilAir: (json['daysUntilAir'] as num).toInt(),
-      );
+  factory UpNextEpisode.fromJson(Map<String, dynamic> json) {
+    final airDate = DateTime.parse(json['airDate'] as String);
+    final availableAtRaw = json['availableAt'] as String?;
+    final airsAtUtcRaw = json['airsAtUtc'] as String?;
+    return UpNextEpisode(
+      tmdbId: (json['tmdbId'] as num).toInt(),
+      showTitle: json['showTitle'] as String? ?? '',
+      showPosterPath: json['showPosterPath'] as String?,
+      season: (json['season'] as num?)?.toInt() ?? 0,
+      number: (json['number'] as num?)?.toInt() ?? 0,
+      episodeName: json['episodeName'] as String?,
+      airDate: airDate,
+      // Old on-disk cache entries predate these fields — tolerate their
+      // absence by falling back to the pre-Trakt date-only shape.
+      availableAt:
+          availableAtRaw != null ? DateTime.parse(availableAtRaw) : airDate,
+      airsAtUtc: airsAtUtcRaw != null ? DateTime.parse(airsAtUtcRaw) : null,
+      daysUntilAir: (json['daysUntilAir'] as num).toInt(),
+    );
+  }
 }
 
 /// How many days into the future to surface upcoming episodes. Tight on
@@ -147,6 +181,114 @@ List<int> upNextEligibleTvIds(
   return ids.toList();
 }
 
+/// Pulls the up-to-two raw episode candidates off a TMDB `/tv/{id}`
+/// payload — `last_episode_to_air` and `next_episode_to_air` — dropping
+/// nulls and deduping by `(season_number, episode_number)` (a show whose
+/// last-aired and next-to-air happen to be the same episode — TMDB does
+/// this right after an episode airs — should only be evaluated once).
+List<Map<String, dynamic>> upNextCandidates(Map<String, dynamic> show) {
+  final out = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  for (final key in const ['last_episode_to_air', 'next_episode_to_air']) {
+    final raw = show[key];
+    if (raw is! Map) continue;
+    final ep = Map<String, dynamic>.from(raw);
+    final season = (ep['season_number'] as num?)?.toInt() ?? 0;
+    final number = (ep['episode_number'] as num?)?.toInt() ?? 0;
+    final dedupeKey = '$season:$number';
+    if (!seen.add(dedupeKey)) continue;
+    out.add(ep);
+  }
+  return out;
+}
+
+/// Builds an [UpNextEpisode] from one candidate episode map (see
+/// [upNextCandidates]), applying the shared spec's availableAt / lag /
+/// window-filter steps. Returns null when the candidate has no usable
+/// air date, or its resolved `availableAt` falls outside
+/// `[-kUpNextRecentDays, kUpNextWindowDays]`.
+///
+/// [airsAtUtc] is the real broadcast instant resolved from Trakt (or null
+/// when unresolved) — when present, `availableAt = airsAtUtc + lagHours`;
+/// otherwise `availableAt` falls back to the TMDB date-only `air_date` at
+/// local midnight, matching the pre-Trakt behaviour.
+UpNextEpisode? buildUpNextEpisode({
+  required int tmdbId,
+  required Map<String, dynamic> show,
+  required Map<String, dynamic> episode,
+  DateTime? airsAtUtc,
+  required int lagHours,
+  required DateTime now,
+}) {
+  final airDateStr = episode['air_date'] as String?;
+  if (airDateStr == null || airDateStr.isEmpty) return null;
+  final parsedAirDate = DateTime.tryParse(airDateStr);
+  if (parsedAirDate == null) return null;
+  final airDate = DateTime(parsedAirDate.year, parsedAirDate.month, parsedAirDate.day);
+
+  final availableAt = airsAtUtc != null
+      ? airsAtUtc.add(Duration(hours: lagHours)).toLocal()
+      : airDate;
+
+  // Calendar-day difference. Built with `DateTime.utc` on purpose: local
+  // midnights straddling a DST change are 23h/25h apart and `inDays`
+  // truncates 23h to 0, which would mislabel "tomorrow" as "today" twice
+  // a year. UTC days are always exactly 24h.
+  final today = DateTime.utc(now.year, now.month, now.day);
+  final availableDate =
+      DateTime.utc(availableAt.year, availableAt.month, availableAt.day);
+  final daysUntilAir = availableDate.difference(today).inDays;
+  if (daysUntilAir < -kUpNextRecentDays || daysUntilAir > kUpNextWindowDays) {
+    return null;
+  }
+
+  return UpNextEpisode(
+    tmdbId: tmdbId,
+    showTitle: (show['name'] as String?) ?? '',
+    showPosterPath: show['poster_path'] as String?,
+    season: (episode['season_number'] as num?)?.toInt() ?? 0,
+    number: (episode['episode_number'] as num?)?.toInt() ?? 0,
+    episodeName: episode['name'] as String?,
+    airDate: airDate,
+    availableAt: availableAt,
+    airsAtUtc: airsAtUtc,
+    daysUntilAir: daysUntilAir,
+  );
+}
+
+/// SharedPreferences key for the tmdbId→traktId lookup cache. A show's
+/// Trakt id never changes, so once resolved we never need to hit Trakt's
+/// `/search/tmdb` endpoint for it again.
+const String kUpNextTraktIdCacheKey = 'wn_trakt_show_ids';
+
+Map<int, int> _loadTraktIdCache(SharedPreferences prefs) {
+  final raw = prefs.getString(kUpNextTraktIdCacheKey);
+  if (raw == null || raw.isEmpty) return {};
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return {};
+    final out = <int, int>{};
+    decoded.forEach((k, v) {
+      final tmdbId = int.tryParse(k.toString());
+      final traktId = v is num ? v.toInt() : null;
+      if (tmdbId != null && traktId != null) out[tmdbId] = traktId;
+    });
+    return out;
+  } catch (e) {
+    developer.log('Trakt id cache corrupt, dropping: $e', name: 'upnext');
+    return {};
+  }
+}
+
+Future<void> _saveTraktIdCache(
+  SharedPreferences prefs,
+  Map<int, int> cache,
+) async {
+  final encoded =
+      jsonEncode(cache.map((k, v) => MapEntry(k.toString(), v)));
+  await prefs.setString(kUpNextTraktIdCacheKey, encoded);
+}
+
 /// Resolves the next episode for every TV show the household is
 /// currently mid-watch on OR has saved to the watchlist, filters to
 /// those with an air date inside the visibility window, and ranks by
@@ -158,6 +300,16 @@ List<int> upNextEligibleTvIds(
 /// mark it as watching first. Returns empty when neither source has an
 /// eligible show; the Home row collapses to nothing in that case so the
 /// screen stays the same as today.
+///
+/// Real air time: for each candidate episode ([upNextCandidates]) we
+/// resolve the Trakt show id (cached — see [kUpNextTraktIdCacheKey]) then
+/// fetch the episode's real `first_aired` via Trakt's public API, and
+/// build the row via [buildUpNextEpisode] using the user's configured
+/// lag ([upNextLagHoursProvider]). Any Trakt failure (unresolved id,
+/// non-200, network error) degrades to the TMDB date-only fallback —
+/// never drops the row. Per show, the candidate with the earliest
+/// `availableAt` wins (spec step 4) so a just-available episode stays on
+/// screen even after TMDB has already advanced `next_episode_to_air`.
 // Stream-based stale-while-revalidate: yields the disk cache (if any)
 // first so the row paints immediately on cold start, then fans the
 // per-show TMDB calls and yields fresh data. Without this, the FIRST
@@ -198,33 +350,62 @@ final upNextProvider =
   }
 
   final tmdb = ref.watch(tmdbServiceProvider);
+  final trakt = ref.watch(traktServiceProvider);
+  final lagHours = ref.watch(upNextLagHoursProvider);
   final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
+
+  final traktIdCache = _loadTraktIdCache(prefs);
+  var traktIdCacheDirty = false;
+
+  Future<int?> resolveTraktShowId(int tmdbId) async {
+    if (traktIdCache.containsKey(tmdbId)) return traktIdCache[tmdbId];
+    final resolved = await trakt.lookupShowTraktId(tmdbId);
+    if (resolved != null) {
+      traktIdCache[tmdbId] = resolved;
+      traktIdCacheDirty = true;
+    }
+    return resolved;
+  }
 
   final fetches = tvIds.map((tmdbId) async {
     try {
       final show = await tmdb.tvShow(tmdbId);
-      final next = show['next_episode_to_air'] as Map<String, dynamic>?;
-      if (next == null) return null;
-      final airDateStr = next['air_date'] as String?;
-      if (airDateStr == null || airDateStr.isEmpty) return null;
-      final parsed = DateTime.tryParse(airDateStr);
-      if (parsed == null) return null;
-      final airDate = DateTime(parsed.year, parsed.month, parsed.day);
-      final daysUntil = airDate.difference(today).inDays;
-      if (daysUntil < -kUpNextRecentDays || daysUntil > kUpNextWindowDays) {
-        return null;
+      final candidates = upNextCandidates(show);
+      if (candidates.isEmpty) return null;
+
+      UpNextEpisode? best;
+      for (final episode in candidates) {
+        DateTime? airsAtUtc;
+        try {
+          final traktShowId = await resolveTraktShowId(tmdbId);
+          if (traktShowId != null) {
+            final season = (episode['season_number'] as num?)?.toInt() ?? 0;
+            final number = (episode['episode_number'] as num?)?.toInt() ?? 0;
+            airsAtUtc = await trakt.fetchEpisodeFirstAired(
+              traktShowId: traktShowId,
+              season: season,
+              number: number,
+            );
+          }
+        } catch (_) {
+          // Trakt failing for this episode just means no real air time —
+          // buildUpNextEpisode falls back to the date-only behaviour.
+          airsAtUtc = null;
+        }
+        final built = buildUpNextEpisode(
+          tmdbId: tmdbId,
+          show: show,
+          episode: episode,
+          airsAtUtc: airsAtUtc,
+          lagHours: lagHours,
+          now: now,
+        );
+        if (built == null) continue;
+        if (best == null || built.availableAt.isBefore(best.availableAt)) {
+          best = built;
+        }
       }
-      return UpNextEpisode(
-        tmdbId: tmdbId,
-        showTitle: (show['name'] as String?) ?? '',
-        showPosterPath: show['poster_path'] as String?,
-        season: (next['season_number'] as num?)?.toInt() ?? 0,
-        number: (next['episode_number'] as num?)?.toInt() ?? 0,
-        episodeName: next['name'] as String?,
-        airDate: airDate,
-        daysUntilAir: daysUntil,
-      );
+      return best;
     } catch (_) {
       // A single show's TMDB lookup failing shouldn't sink the row —
       // skip it and let other shows surface.
@@ -233,8 +414,11 @@ final upNextProvider =
   }).toList();
 
   final results = await Future.wait(fetches);
+  if (traktIdCacheDirty) {
+    await _saveTraktIdCache(prefs, traktIdCache);
+  }
   final fresh = results.whereType<UpNextEpisode>().toList()
-    ..sort((a, b) => a.airDate.compareTo(b.airDate));
+    ..sort((a, b) => a.availableAt.compareTo(b.availableAt));
   final capped = fresh.take(kUpNextMaxTiles).toList();
   await _UpNextDiskCache.save(prefs, capped);
   yield capped;
