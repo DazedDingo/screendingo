@@ -16,6 +16,7 @@ import 'demo/demo_overrides.dart';
 import 'providers/ask_ai_placement_provider.dart';
 import 'providers/onboarding_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/up_next_lag_provider.dart';
 import 'providers/up_next_style_provider.dart';
 import 'services/home_widget_service.dart';
 
@@ -180,6 +181,8 @@ void main() async {
           .overrideWith((_) => AskAiPlacementController(prefs)),
       upNextStyleProvider
           .overrideWith((_) => UpNextStyleController(prefs)),
+      upNextLagHoursProvider
+          .overrideWith((_) => UpNextLagController(prefs)),
       onboardingDoneProvider
           .overrideWith((_) => OnboardingController(prefs)),
       // DEMO_MODE: swap every Firestore-coupled provider for curated mock

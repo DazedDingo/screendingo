@@ -15,9 +15,11 @@ import '../../providers/household_provider.dart';
 import '../../providers/mode_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/trakt_provider.dart';
+import '../../providers/up_next_lag_provider.dart';
 import '../../providers/up_next_style_provider.dart';
 import '../../providers/upnext_provider.dart';
 import '../../services/app_icon_service.dart';
+import '../../utils/up_next_labels.dart';
 import '../../widgets/help_button.dart';
 import 'widget_diagnostics_sheet.dart';
 
@@ -127,6 +129,7 @@ class ProfileScreen extends ConsumerWidget {
           const _AccentPicker(),
           const _AskAiPlacementTile(),
           const _UpNextStyleTile(),
+          const _UpNextLagTile(),
           const _AppIconTile(),
           const Divider(),
 
@@ -589,7 +592,7 @@ class _UpNextHealthTile extends ConsumerWidget {
         } else {
           final epLabel =
               'S${next.season.toString().padLeft(2, '0')}E${next.number.toString().padLeft(2, '0')}';
-          final relative = _profileRelative(next.daysUntilAir);
+          final relative = upNextRelativeLabelCompact(next);
           subtitle = tracking == 1
               ? 'Tracking 1 show; next: ${next.showTitle} $epLabel $relative'
               : 'Tracking $tracking shows; next: ${next.showTitle} $epLabel $relative';
@@ -603,13 +606,6 @@ class _UpNextHealthTile extends ConsumerWidget {
       },
     );
   }
-}
-
-String _profileRelative(int daysUntilAir) {
-  if (daysUntilAir == 0) return 'today';
-  if (daysUntilAir == 1) return 'tomorrow';
-  if (daysUntilAir < 0) return 'just aired';
-  return 'in ${daysUntilAir}d';
 }
 
 // ---------------------------------------------------------------------------
@@ -663,6 +659,40 @@ class _UpNextStyleTile extends ConsumerWidget {
         itemBuilder: (_) => [
           for (final s in UpNextStyle.values)
             PopupMenuItem(value: s, child: Text(s.label)),
+        ],
+        icon: const Icon(Icons.arrow_drop_down),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Up next episode availability delay — how many hours after real broadcast
+// an episode is expected to actually be watchable (see up_next_lag_provider).
+// ---------------------------------------------------------------------------
+
+class _UpNextLagTile extends ConsumerWidget {
+  const _UpNextLagTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(upNextLagHoursProvider);
+    final subtitle = current == 0 ? 'Immediately' : '${current}h after broadcast';
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.hourglass_bottom_outlined),
+      title: const Text('Episode availability delay'),
+      subtitle: Text(subtitle),
+      trailing: PopupMenuButton<int>(
+        initialValue: current,
+        onSelected: (v) =>
+            ref.read(upNextLagHoursProvider.notifier).set(v),
+        itemBuilder: (_) => [
+          for (final hours in kUpNextLagChoices)
+            PopupMenuItem(
+              value: hours,
+              child: Text(hours == 0 ? 'Immediately' : '${hours}h'),
+            ),
         ],
         icon: const Icon(Icons.arrow_drop_down),
       ),

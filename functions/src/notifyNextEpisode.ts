@@ -2,53 +2,82 @@ import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
+import {
+  candidateEpisodes,
+  createTraktIdCache,
+  EpisodeCandidate,
+  fetchEpisodeFirstAired,
+  pickBestAvailability,
+  TraktIdCache,
+  UPNEXT_LAG_HOURS,
+} from "./traktAirTime";
 
 /**
- * Daily push notification: "next episode of an in-progress show airs today".
+ * Daily push notification: "next episode of an in-progress show is
+ * available today".
  *
  * Reuses the data shape behind the client-side `upNextProvider`. For each
  * household, scan watch entries with `media_type='tv'` AND
- * `in_progress_status='watching'`, look up `next_episode_to_air` via TMDB
- * `/tv/{id}`, and if `air_date` matches today (Etc/UTC), send one FCM
- * push per household member token.
+ * `in_progress_status='watching'`, evaluate both `last_episode_to_air` and
+ * `next_episode_to_air` (TMDB `/tv/{id}`) through the shared
+ * Trakt-air-time + lag model in `traktAirTime.ts`, and if the resulting
+ * `availableAt` lands on today (UTC calendar day — `daysUntil === 0`), send
+ * one FCM push per household member token.
  *
  * Idempotency: every successful push stamps
  * `last_episode_notified_for: '{YYYY-MM-DD}'` on the watch entry. The
- * helper short-circuits when the stamp matches the air date already, so
- * a repeat cron invocation in the same day is a no-op. Once the next
- * episode rolls over to a new air date, the stamp is stale and the
- * push fires again on that day.
+ * helper short-circuits when the stamp matches the resolved availability
+ * date already, so a repeat cron invocation in the same day is a no-op.
+ * Once the next episode rolls over to a new availability date, the stamp
+ * is stale and the push fires again on that day.
  *
  * Cost: 1 cron/day × ~few households × ~1 TMDB call per in-progress
- * show. Free-tier safe — TMDB is unmetered, FCM is free, the CF runs
- * once a day.
+ * show (+1 Trakt search + 1 Trakt episode call per candidate, cached per
+ * show for the id lookup). Free-tier safe — TMDB is unmetered, Trakt is a
+ * free public endpoint, FCM is free, the CF runs once a day.
  */
 
 const TMDB_API_KEY = defineSecret("TMDB_API_KEY");
+// See refreshUpNextWidget.ts for why this is redeclared here rather than
+// imported from index.ts (mirrors the externalRatings.ts OMDB_API_KEY
+// pattern — avoids a circular import).
+const TRAKT_CLIENT_ID = defineSecret("TRAKT_CLIENT_ID");
 
 /** Pure helper. Decides which watch entries need a push, given today's
- *  date, the in-progress watch entries, and the per-tmdbId next-episode
- *  air dates resolved from TMDB. Excluded:
- *    - shows TMDB returned no `next_episode_to_air` for (cancelled, etc)
- *    - shows whose next ep airs on a day other than today
- *    - shows already notified for the same air date (idempotency)
- *  Test target — orchestration around it (Firestore, TMDB, FCM) is
+ *  date, the in-progress watch entries, and the per-tmdbId resolved
+ *  availability info. Excluded:
+ *    - shows with no episode becoming available today (cancelled, airs on
+ *      a different day, etc)
+ *    - shows already notified for the same availability date (idempotency)
+ *  Test target — orchestration around it (Firestore, TMDB, Trakt, FCM) is
  *  integration territory and skipped from unit tests. */
 export type WatchEntryRow = {
   entryId: string;
   tmdbId: number;
   title: string;
   posterPath?: string | null;
-  /** Already-stamped air date from a prior successful notify, or
+  /** Already-stamped availability date from a prior successful notify, or
    *  undefined if never notified. */
   lastEpisodeNotifiedFor?: string;
 };
 
 export type NextEpisodeInfo = {
-  airDate: string; // YYYY-MM-DD
+  /** Effective availability date (YYYY-MM-DD, UTC) — Trakt-air-time +
+   *  lag adjusted when resolved, else TMDB's raw `air_date`. Always equal
+   *  to `today` by construction (the orchestration layer only produces a
+   *  non-null result when the episode becomes available today). */
+  airDate: string;
   seasonNumber: number;
   episodeNumber: number;
   episodeName?: string | null;
+  /** True when `availableAt` carries a real Trakt-resolved time-of-day
+   *  rather than the date-only midnight fallback. Optional — omitted by
+   *  older callers/tests, in which case message wording falls back to the
+   *  date-only phrasing. */
+  hasTime?: boolean;
+  /** The resolved availability instant, used only for "is out now" vs
+   *  "is out today" message wording. */
+  availableAt?: Date;
 };
 
 export type Notification = {
@@ -60,6 +89,8 @@ export type Notification = {
   seasonNumber: number;
   episodeNumber: number;
   episodeName?: string | null;
+  hasTime?: boolean;
+  availableAt?: Date;
 };
 
 export function pickEntriesNeedingNotify(
@@ -82,6 +113,8 @@ export function pickEntriesNeedingNotify(
       seasonNumber: next.seasonNumber,
       episodeNumber: next.episodeNumber,
       episodeName: next.episodeName ?? null,
+      hasTime: next.hasTime,
+      availableAt: next.availableAt,
     });
   }
   return out;
@@ -94,45 +127,103 @@ export function formatEpisodeLabel(season: number, episode: number): string {
   return `S${s}E${e}`;
 }
 
+/** Pure: push notification title, wording kept consistent with the
+ *  relative-time label semantics used elsewhere — a Trakt-resolved time
+ *  that has already passed reads as "is out now"; everything else
+ *  (date-only fallback, or a Trakt time later today) reads as "is out
+ *  today" (announcing that today is the day, even before the precise
+ *  availability instant arrives). */
+export function formatNotifyTitle(
+  hasTime: boolean | undefined,
+  availableAt: Date | undefined,
+  now: Date,
+): string {
+  const outNow =
+    hasTime === true && availableAt != null && now.getTime() >= availableAt.getTime();
+  return outNow ? "New episode is out now" : "New episode out today";
+}
+
 /** Today as YYYY-MM-DD in Etc/UTC. The CF schedule uses UTC; matching the
  *  scheduler's reference frame avoids "off by one" edge cases at midnight
  *  in the household's local zone. */
-function todayUtcIso(): string {
-  const now = new Date();
+function todayUtcIso(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
-async function fetchNextEpisode(
+async function fetchShowEpisodesPayload(
   tmdbId: number,
   apiKey: string,
-): Promise<NextEpisodeInfo | null> {
+): Promise<Record<string, unknown> | null> {
   // Lean /tv/{id} call — same endpoint the client `upNextProvider` uses,
-  // returns `next_episode_to_air` in the base payload. Trim defends
-  // against trailing newlines in Secret Manager values (same class of
-  // bug that bit OMDb in gotcha 35b — `\n` URL-encodes to `%0A` and the
-  // upstream rejects the request as "Invalid API key").
+  // returns both `last_episode_to_air` and `next_episode_to_air` in the
+  // base payload. Trim defends against trailing newlines in Secret
+  // Manager values (same class of bug that bit OMDb in gotcha 35b — `\n`
+  // URL-encodes to `%0A` and the upstream rejects the request as "Invalid
+  // API key").
   const url = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${apiKey.trim()}&language=en-US`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
-    const json = (await res.json()) as Record<string, unknown>;
-    const next = json["next_episode_to_air"] as Record<string, unknown> | null;
-    if (!next) return null;
-    const airDate = next["air_date"] as string | null;
-    const seasonNumber = next["season_number"] as number | null;
-    const episodeNumber = next["episode_number"] as number | null;
-    const episodeName = next["name"] as string | null;
-    if (!airDate || seasonNumber == null || episodeNumber == null) return null;
-    return {
-      airDate,
-      seasonNumber,
-      episodeNumber,
-      episodeName,
-    };
+    return (await res.json()) as Record<string, unknown>;
   } catch (err) {
     logger.warn(`notifyNextEpisode: TMDB lookup failed for tmdbId=${tmdbId}`, err);
     return null;
   }
+}
+
+/** Resolves whether a show has an episode becoming available TODAY
+ *  (`daysUntil === 0`), evaluating both `last_episode_to_air` and
+ *  `next_episode_to_air` through the shared Trakt-air-time model — this is
+ *  what lets a just-aired episode (already rolled off TMDB's
+ *  `next_episode_to_air`) still trigger today's push. Returns `null` when
+ *  neither candidate is available today, or when the TMDB lookup itself
+ *  fails; a single show's Trakt/TMDB failure never aborts the batch. */
+async function resolveTodayEpisode(
+  tmdbId: number,
+  apiKey: string,
+  clientId: string,
+  idCache: TraktIdCache,
+  now: Date,
+): Promise<NextEpisodeInfo | null> {
+  const showJson = await fetchShowEpisodesPayload(tmdbId, apiKey);
+  const candidates = candidateEpisodes(showJson);
+  if (candidates.length === 0) return null;
+
+  const resolveAirsAtUtc = async (candidate: EpisodeCandidate): Promise<Date | null> => {
+    if (!clientId) return null;
+    try {
+      const traktShowId = await idCache.get(tmdbId, clientId);
+      if (traktShowId == null) return null;
+      return await fetchEpisodeFirstAired(
+        traktShowId,
+        candidate.season,
+        candidate.number,
+        clientId,
+      );
+    } catch (err) {
+      logger.warn(`notifyNextEpisode: Trakt lookup failed for tmdbId=${tmdbId}`, err);
+      return null;
+    }
+  };
+
+  // windowAheadDays/windowBehindDays = 0 forces "only a candidate becoming
+  // available EXACTLY today survives" — i.e. the `daysUntil === 0` gate.
+  const best = await pickBestAvailability(candidates, resolveAirsAtUtc, {
+    lagHours: UPNEXT_LAG_HOURS,
+    now,
+    windowAheadDays: 0,
+    windowBehindDays: 0,
+  });
+  if (!best) return null;
+
+  return {
+    airDate: todayUtcIso(now),
+    seasonNumber: best.candidate.season,
+    episodeNumber: best.candidate.number,
+    episodeName: best.candidate.name,
+    hasTime: best.availability.hasTime,
+    availableAt: best.availability.availableAt,
+  };
 }
 
 /** Fan out per household. Exported for direct invocation in tests against
@@ -141,7 +232,10 @@ async function notifyHousehold(
   db: admin.firestore.Firestore,
   hhId: string,
   apiKey: string,
+  clientId: string,
+  idCache: TraktIdCache,
   today: string,
+  now: Date,
 ): Promise<{ pushed: number; skipped: number; errors: number }> {
   // 1. Read all in-progress TV watch entries.
   const entriesSnap = await db
@@ -169,12 +263,24 @@ async function notifyHousehold(
   }
   if (entries.length === 0) return { pushed: 0, skipped: 0, errors: 0 };
 
-  // 2. Resolve TMDB next_episode_to_air per show. Sequential with a small
-  //    throttle — this CF runs once a day and TMDB has a soft per-IP cap;
-  //    no need to fan out aggressively.
+  // 2. Resolve today's availability per show. Sequential with a small
+  //    throttle — this CF runs once a day and TMDB/Trakt have soft
+  //    per-IP caps; no need to fan out aggressively.
   const nextEpByTmdbId: Record<number, NextEpisodeInfo | null> = {};
   for (const e of entries) {
-    nextEpByTmdbId[e.tmdbId] = await fetchNextEpisode(e.tmdbId, apiKey);
+    try {
+      nextEpByTmdbId[e.tmdbId] = await resolveTodayEpisode(
+        e.tmdbId,
+        apiKey,
+        clientId,
+        idCache,
+        now,
+      );
+    } catch (err) {
+      // A single show's failure must never abort the batch.
+      logger.warn(`notifyNextEpisode: resolution failed for tmdbId=${e.tmdbId}`, err);
+      nextEpByTmdbId[e.tmdbId] = null;
+    }
   }
 
   // 3. Decide who needs a push (pure).
@@ -200,6 +306,7 @@ async function notifyHousehold(
     const epLabel = formatEpisodeLabel(n.seasonNumber, n.episodeNumber);
     const bodyName = n.episodeName ? ` — ${n.episodeName}` : "";
     const body = `${n.showTitle} ${epLabel}${bodyName}`;
+    const title = formatNotifyTitle(n.hasTime, n.availableAt, now);
     for (const token of tokens) {
       try {
         await admin.messaging().send({
@@ -214,7 +321,7 @@ async function notifyHousehold(
             title: n.showTitle,
           },
           notification: {
-            title: "New episode out today",
+            title,
             body,
           },
           android: { priority: "normal" },
@@ -256,7 +363,7 @@ export const notifyNextEpisodeDaily = onSchedule(
     schedule: "0 9 * * *",
     timeZone: "Etc/UTC",
     region: "europe-west2",
-    secrets: [TMDB_API_KEY],
+    secrets: [TMDB_API_KEY, TRAKT_CLIENT_ID],
   },
   async () => {
     const apiKey = TMDB_API_KEY.value();
@@ -264,7 +371,13 @@ export const notifyNextEpisodeDaily = onSchedule(
       logger.error("notifyNextEpisode: TMDB_API_KEY secret unset; skipping");
       return;
     }
-    const today = todayUtcIso();
+    // Empty is a valid runtime state — resolveTodayEpisode treats an empty
+    // clientId as "skip Trakt, use the date-only fallback" (same as a
+    // Trakt outage would).
+    const clientId = TRAKT_CLIENT_ID.value() ?? "";
+    const now = new Date();
+    const today = todayUtcIso(now);
+    const idCache = createTraktIdCache();
     const db = admin.firestore();
     const hhSnap = await db.collection("households").get();
     let totalPushed = 0;
@@ -272,7 +385,7 @@ export const notifyNextEpisodeDaily = onSchedule(
     let totalErrors = 0;
     for (const hh of hhSnap.docs) {
       try {
-        const r = await notifyHousehold(db, hh.id, apiKey, today);
+        const r = await notifyHousehold(db, hh.id, apiKey, clientId, idCache, today, now);
         totalPushed += r.pushed;
         totalSkipped += r.skipped;
         totalErrors += r.errors;

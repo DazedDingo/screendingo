@@ -13,6 +13,16 @@ import {
   REFRESH_WIDGET_WINDOW_DAYS_BEHIND,
   UpNextRow,
 } from "../src/refreshUpNextWidget";
+import {
+  candidateEpisodes,
+  pickBestAvailability,
+  UPNEXT_LAG_HOURS,
+} from "../src/traktAirTime";
+
+// Arbitrary fixed anchor so `daysUntil`-only tests (hasTime=false) don't
+// need to care about the exact clock — only the day-diff from `daysUntil`
+// matters for those assertions.
+const ARBITRARY_ANCHOR_MS = Date.UTC(2026, 0, 1);
 
 function row(o: Partial<UpNextRow> & { daysUntil: number }): UpNextRow {
   return {
@@ -26,6 +36,8 @@ function row(o: Partial<UpNextRow> & { daysUntil: number }): UpNextRow {
       episodeName: "Pilot",
     },
     daysUntil: o.daysUntil,
+    hasTime: o.hasTime ?? false,
+    availableAt: o.availableAt ?? new Date(ARBITRARY_ANCHOR_MS + o.daysUntil * 86400000),
   };
 }
 
@@ -220,5 +232,134 @@ describe("collectUpNextShows", () => {
 
   test("empty both sides returns empty", () => {
     expect(collectUpNextShows([], [])).toEqual([]);
+  });
+});
+
+// ─── Trakt-air-time pipeline (spec: real air time + availability lag) ──────
+//
+// `resolveShowRow` (private orchestration in refreshUpNextWidget.ts) wires
+// TMDB fetch + Trakt id-cache + `candidateEpisodes` + `pickBestAvailability`
+// together; these tests exercise that exact composition using the widget's
+// own window constants (7 days ahead / 1 day behind), with a stubbed
+// `resolveAirsAtUtc` in place of a real Trakt HTTP call — so the whole
+// per-show candidate → availability → label pipeline is covered without any
+// network or Firestore mocking.
+describe("Trakt-air-time pipeline (widget window)", () => {
+  const now = new Date("2026-05-15T09:00:00.000Z");
+
+  function widgetWindow() {
+    return {
+      lagHours: UPNEXT_LAG_HOURS,
+      now,
+      windowAheadDays: REFRESH_WIDGET_WINDOW_DAYS_AHEAD,
+      windowBehindDays: REFRESH_WIDGET_WINDOW_DAYS_BEHIND,
+    };
+  }
+
+  test("Trakt path changes the label: date-only 'Out today' becomes 'Tomorrow ~08:00' once the real air time is resolved", async () => {
+    const showJson = {
+      last_episode_to_air: null,
+      next_episode_to_air: {
+        season_number: 3,
+        episode_number: 4,
+        name: "Big Reveal",
+        air_date: "2026-05-15", // TMDB says "today" (US date)
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    // Date-only fallback (no Trakt) — old behaviour.
+    const dateOnly = await pickBestAvailability(
+      candidates,
+      async () => null,
+      widgetWindow(),
+    );
+    expect(dateOnly!.availability.hasTime).toBe(false);
+    expect(relativeWhenLabel(dateOnly!.availability.daysUntil)).toBe("Out today");
+
+    // Trakt resolves the real air time to 02:00 UTC the *next* day; +6h lag
+    // pushes availability to 08:00 UTC tomorrow.
+    const withTrakt = await pickBestAvailability(
+      candidates,
+      async () => new Date("2026-05-16T02:00:00.000Z"),
+      widgetWindow(),
+    );
+    expect(withTrakt!.availability.hasTime).toBe(true);
+    expect(withTrakt!.availability.daysUntil).toBe(1);
+    expect(
+      relativeWhenLabel(withTrakt!.availability.daysUntil, {
+        hasTime: withTrakt!.availability.hasTime,
+        availableAt: withTrakt!.availability.availableAt,
+        now,
+      }),
+    ).toBe("Tomorrow ~08:00");
+  });
+
+  test("last_episode_to_air available today beats next_episode_to_air in 7 days", async () => {
+    const showJson = {
+      last_episode_to_air: {
+        season_number: 2,
+        episode_number: 9,
+        name: "Finale",
+        air_date: "2026-05-15", // today
+      },
+      next_episode_to_air: {
+        season_number: 3,
+        episode_number: 1,
+        name: "Premiere",
+        air_date: "2026-05-22", // 7 days out
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    const best = await pickBestAvailability(candidates, async () => null, widgetWindow());
+
+    expect(best!.candidate.number).toBe(9);
+    expect(best!.candidate.season).toBe(2);
+    expect(best!.availability.daysUntil).toBe(0);
+  });
+
+  test("Trakt lookup failing (404-equivalent → resolver returns null) degrades to the old date-only behaviour", async () => {
+    const showJson = {
+      last_episode_to_air: null,
+      next_episode_to_air: {
+        season_number: 1,
+        episode_number: 1,
+        name: "Pilot",
+        air_date: "2026-05-16", // tomorrow
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    const best = await pickBestAvailability(candidates, async () => null, widgetWindow());
+
+    expect(best).not.toBeNull();
+    expect(best!.availability.hasTime).toBe(false);
+    // Matches the pre-Trakt daysBetweenUtc("2026-05-15", "2026-05-16") == 1.
+    expect(best!.availability.daysUntil).toBe(
+      daysBetweenUtc("2026-05-15", "2026-05-16"),
+    );
+    expect(relativeWhenLabel(best!.availability.daysUntil)).toBe("Tomorrow");
+  });
+
+  test("candidate outside the window is dropped even when Trakt resolves a time", async () => {
+    const showJson = {
+      last_episode_to_air: null,
+      next_episode_to_air: {
+        season_number: 1,
+        episode_number: 1,
+        name: null,
+        air_date: "2026-06-01", // far beyond the 7-day-ahead window
+      },
+    };
+    const candidates = candidateEpisodes(showJson);
+
+    const best = await pickBestAvailability(
+      candidates,
+      async () => new Date("2026-06-01T02:00:00.000Z"),
+      widgetWindow(),
+    );
+
+    expect(best).toBeNull();
   });
 });

@@ -37,6 +37,7 @@ import '../../services/tmdb_service.dart';
 import '../../utils/animation_cap.dart';
 import '../../utils/keyword_genre_augment.dart';
 import '../../utils/tmdb_genres.dart';
+import '../../utils/up_next_labels.dart';
 import '../../utils/oscar_winners.dart';
 import '../../utils/rec_explainer.dart';
 import '../../utils/surprise_picker.dart';
@@ -2536,7 +2537,7 @@ class _UpNextItem extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final epLabel =
         'S${episode.season.toString().padLeft(2, '0')}E${episode.number.toString().padLeft(2, '0')}';
-    final relative = _relativeAirLabel(episode.daysUntilAir);
+    final relative = upNextRelativeLabel(episode);
     return InkWell(
       // Forward season + episode so the detail screen auto-expands the
       // matching season + scrolls the episode row into view — same 1-tap
@@ -2573,14 +2574,6 @@ class _UpNextItem extends StatelessWidget {
       ),
     );
   }
-}
-
-String _relativeAirLabel(int daysUntilAir) {
-  if (daysUntilAir == 0) return 'Out today';
-  if (daysUntilAir == 1) return 'Tomorrow';
-  if (daysUntilAir == -1) return 'Aired yesterday';
-  if (daysUntilAir < 0) return 'Just aired';
-  return 'In ${daysUntilAir}d';
 }
 
 // ─── Upcoming for you carousel ──────────────────────────────────────────────

@@ -5,6 +5,7 @@ import 'package:home_widget/home_widget.dart';
 
 import '../providers/tonights_pick_provider.dart';
 import '../providers/upnext_provider.dart';
+import '../utils/up_next_labels.dart';
 
 /// Bridge between Flutter state and the Android home-screen widgets
 /// (Up Next + Tonight's Pick). The native AppWidgetProviders are shipped
@@ -64,7 +65,7 @@ class HomeWidgetService {
         await HomeWidget.saveWidgetData<String>(
             'up_next_${i}_episode_label', _episodeLabel(e));
         await HomeWidget.saveWidgetData<String>(
-            'up_next_${i}_when', _relativeWhen(e.daysUntilAir));
+            'up_next_${i}_when', upNextRelativeLabel(e));
         await HomeWidget.saveWidgetData<String>(
             'up_next_${i}_uri', _episodeUri(e).toString());
       } else {
@@ -210,7 +211,7 @@ class HomeWidgetService {
 
 Uri episodeWidgetUri(UpNextEpisode e) => _episodeUri(e);
 Uri pickWidgetUri(TonightsPick p) => _pickUri(p);
-String relativeWhenLabel(int daysUntilAir) => _relativeWhen(daysUntilAir);
+String relativeWhenLabel(UpNextEpisode e) => upNextRelativeLabel(e);
 String upNextEpisodeLabel(UpNextEpisode e) => _episodeLabel(e);
 
 // Includes season + episode so the widget tap deep-links to the specific
@@ -222,17 +223,6 @@ Uri _episodeUri(UpNextEpisode e) => Uri.parse(
 
 Uri _pickUri(TonightsPick p) =>
     Uri.parse('wn://title/${p.mediaType}/${p.tmdbId}');
-
-// Duplicated from `home_screen.dart`'s `_relativeAirLabel`. Kept private
-// there to avoid screens leaking widgets — copying is cheap and matches the
-// labels exactly.
-String _relativeWhen(int daysUntilAir) {
-  if (daysUntilAir == 0) return 'Out today';
-  if (daysUntilAir == 1) return 'Tomorrow';
-  if (daysUntilAir == -1) return 'Aired yesterday';
-  if (daysUntilAir < 0) return 'Just aired';
-  return 'In ${daysUntilAir}d';
-}
 
 String _episodeLabel(UpNextEpisode e) {
   // Matches the in-app row format: "S3E4 · Big Reveal" or just "S3E4" when

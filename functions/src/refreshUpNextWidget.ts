@@ -2,6 +2,21 @@ import * as admin from "firebase-admin";
 import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import {
+  candidateEpisodes,
+  createTraktIdCache,
+  EpisodeCandidate,
+  fetchEpisodeFirstAired,
+  pickBestAvailability,
+  relativeWhenLabel,
+  UPNEXT_LAG_HOURS,
+  TraktIdCache,
+} from "./traktAirTime";
+
+// Re-exported so existing imports (`import { relativeWhenLabel } from
+// "./refreshUpNextWidget"`) keep working now that the label formatter lives
+// in the shared `traktAirTime.ts` module alongside the availability model.
+export { relativeWhenLabel } from "./traktAirTime";
 
 // Mirrors `lib/providers/upnext_provider.dart` — same window, same cap so
 // the FCM-pushed payload looks identical to what the in-app row would render
@@ -11,6 +26,13 @@ export const REFRESH_WIDGET_WINDOW_DAYS_AHEAD = 7;
 export const REFRESH_WIDGET_WINDOW_DAYS_BEHIND = 1;
 
 const TMDB_API_KEY = defineSecret("TMDB_API_KEY");
+// Trakt is used to resolve each candidate episode's real UTC air time (see
+// `traktAirTime.ts`); the client id is not a secret in principle (it's sent
+// as a request header on public endpoints) but is already managed as one
+// via the existing `TRAKT_CLIENT_ID` secret declared in `index.ts` for the
+// OAuth callables — redeclaring it here (same pattern as `OMDB_API_KEY` in
+// `externalRatings.ts`) avoids a circular import from index.ts.
+const TRAKT_CLIENT_ID = defineSecret("TRAKT_CLIENT_ID");
 
 export type NextEp = {
   airDate: string;
@@ -24,13 +46,20 @@ export type UpNextRow = {
   showTitle: string;
   posterPath?: string | null;
   next: NextEp;
-  /** Days from `today` (UTC) to `next.airDate`. Negative = aired N days ago. */
+  /** Days from `today` (UTC) to `availableAt` (see `traktAirTime.ts`).
+   *  Negative = became available N days ago. 0 = available today. */
   daysUntil: number;
+  /** When the episode is expected to actually be available to watch —
+   *  Trakt `first_aired` + lag when resolved, else `next.airDate` at UTC
+   *  midnight. Drives both the final sort and the relative-time label. */
+  availableAt: Date;
+  /** True when `availableAt` carries a real Trakt-resolved time-of-day. */
+  hasTime: boolean;
 };
 
 /** YYYY-MM-DD (UTC). Matches the daily notifyNextEpisode scheduler frame. */
-export function todayUtcIso(): string {
-  return new Date().toISOString().slice(0, 10);
+export function todayUtcIso(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
 }
 
 /** Pure: days between two YYYY-MM-DD strings, anchored to UTC midnight. */
@@ -39,18 +68,6 @@ export function daysBetweenUtc(a: string, b: string): number {
   const db = Date.parse(`${b}T00:00:00Z`);
   if (Number.isNaN(da) || Number.isNaN(db)) return 0;
   return Math.round((db - da) / 86400000);
-}
-
-/** Pure: relative-time label matching `_relativeWhen` in
- *  `home_widget_service.dart`. The client-side function is duplicated here
- *  so the FCM payload arrives pre-formatted and the background handler
- *  has zero parsing work (it just copies strings into home_widget prefs). */
-export function relativeWhenLabel(daysUntil: number): string {
-  if (daysUntil === 0) return "Out today";
-  if (daysUntil === 1) return "Tomorrow";
-  if (daysUntil === -1) return "Aired yesterday";
-  if (daysUntil < 0) return "Just aired";
-  return `In ${daysUntil}d`;
 }
 
 /** Pure: matches `_episodeLabel` in `home_widget_service.dart`. */
@@ -73,10 +90,11 @@ export function episodeUri(
   return `wn://title/tv/${tmdbId}?season=${season}&episode=${episode}`;
 }
 
-/** Pure: pick the rows whose `next.airDate` lands in the in-app window
+/** Pure: pick the rows whose `daysUntil` lands in the in-app window
  *  (today - WINDOW_BEHIND to today + WINDOW_AHEAD) and stable-sort by
- *  soonest air date. Mirrors the client's `upNextProvider` selection so
- *  the widget never disagrees with what the app would show. */
+ *  soonest availability (ties broken by exact `availableAt`). Mirrors the
+ *  client's `upNextProvider` selection so the widget never disagrees with
+ *  what the app would show. */
 export function pickUpNextRows(
   today: string,
   rows: UpNextRow[],
@@ -94,7 +112,11 @@ export function pickUpNextRows(
     const d = r.daysUntil;
     return d >= -windowBehind && d <= windowAhead;
   });
-  inWindow.sort((a, b) => a.daysUntil - b.daysUntil);
+  inWindow.sort(
+    (a, b) =>
+      a.daysUntil - b.daysUntil ||
+      a.availableAt.getTime() - b.availableAt.getTime(),
+  );
   return inWindow.slice(0, maxTiles);
 }
 
@@ -161,8 +183,12 @@ export function collectUpNextShows(
  *  SharedPreferences slot names the AppWidgetProvider reads
  *  (`up_next_${i}_*` + `up_next_count`), so the background handler can
  *  copy them across without parsing. All values are strings — FCM data
- *  maps don't carry typed values. */
-export function buildFcmDataPayload(rows: UpNextRow[]): Record<string, string> {
+ *  maps don't carry typed values. `now` drives the "Out now" vs
+ *  "Today ~HH:mm" branch of the label and defaults to the real clock. */
+export function buildFcmDataPayload(
+  rows: UpNextRow[],
+  now: Date = new Date(),
+): Record<string, string> {
   const out: Record<string, string> = {
     type: "refresh_widget",
     up_next_count: rows.length.toString(),
@@ -176,7 +202,11 @@ export function buildFcmDataPayload(rows: UpNextRow[]): Record<string, string> {
         r.next.episodeNumber,
         r.next.episodeName,
       );
-      out[`up_next_${i}_when`] = relativeWhenLabel(r.daysUntil);
+      out[`up_next_${i}_when`] = relativeWhenLabel(r.daysUntil, {
+        hasTime: r.hasTime,
+        availableAt: r.availableAt,
+        now,
+      });
       out[`up_next_${i}_uri`] = episodeUri(
         r.tmdbId,
         r.next.seasonNumber,
@@ -196,38 +226,94 @@ export function buildFcmDataPayload(rows: UpNextRow[]): Record<string, string> {
 
 // ─── Orchestration (integration territory, not unit-tested) ─────────────────
 
-async function fetchNextEpisode(
+async function fetchShowEpisodesPayload(
   tmdbId: number,
   apiKey: string,
-): Promise<NextEp | null> {
-  // Duplicated from notifyNextEpisode.ts — keeping the helpers private to
-  // each CF avoids a cross-file refactor risk; the function is ~20 lines and
-  // the TMDB shape is stable. Trim defends against `\n` in Secret Manager
-  // values (gotcha 35b).
+): Promise<Record<string, unknown> | null> {
+  // Same lean `/tv/{id}` call as before, but we now read BOTH
+  // `last_episode_to_air` and `next_episode_to_air` (via `candidateEpisodes`)
+  // instead of just the next one — see traktAirTime.ts model doc. Trim
+  // defends against `\n` in Secret Manager values (gotcha 35b).
   const url = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${apiKey.trim()}&language=en-US`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
-    const json = (await res.json()) as Record<string, unknown>;
-    const next = json["next_episode_to_air"] as Record<string, unknown> | null;
-    if (!next) return null;
-    const airDate = next["air_date"] as string | null;
-    const seasonNumber = next["season_number"] as number | null;
-    const episodeNumber = next["episode_number"] as number | null;
-    const episodeName = next["name"] as string | null;
-    if (!airDate || seasonNumber == null || episodeNumber == null) return null;
-    return { airDate, seasonNumber, episodeNumber, episodeName };
+    return (await res.json()) as Record<string, unknown>;
   } catch (err) {
     logger.warn(`refreshUpNextWidget: TMDB lookup failed for tmdbId=${tmdbId}`, err);
     return null;
   }
 }
 
+/** Resolves a single show's Up Next row: fetch TMDB candidates, resolve
+ *  each candidate's real air time via Trakt (skipped entirely when
+ *  `clientId` is empty — falls back to date-only), compute availability,
+ *  drop out-of-window candidates, and keep the earliest-available one.
+ *  Returns `null` when the show has no episode in-window (or the TMDB
+ *  lookup itself failed) — a single show's Trakt/TMDB failure never
+ *  aborts the batch. */
+async function resolveShowRow(
+  show: UpNextSourceShow,
+  apiKey: string,
+  clientId: string,
+  idCache: TraktIdCache,
+  now: Date,
+): Promise<UpNextRow | null> {
+  const showJson = await fetchShowEpisodesPayload(show.tmdbId, apiKey);
+  const candidates = candidateEpisodes(showJson);
+  if (candidates.length === 0) return null;
+
+  const resolveAirsAtUtc = async (candidate: EpisodeCandidate): Promise<Date | null> => {
+    if (!clientId) return null;
+    try {
+      const traktShowId = await idCache.get(show.tmdbId, clientId);
+      if (traktShowId == null) return null;
+      return await fetchEpisodeFirstAired(
+        traktShowId,
+        candidate.season,
+        candidate.number,
+        clientId,
+      );
+    } catch (err) {
+      // Defensive — the Trakt helpers already swallow their own errors,
+      // but a show's Trakt failure must never abort the batch.
+      logger.warn(`refreshUpNextWidget: Trakt lookup failed for tmdbId=${show.tmdbId}`, err);
+      return null;
+    }
+  };
+
+  const best = await pickBestAvailability(candidates, resolveAirsAtUtc, {
+    lagHours: UPNEXT_LAG_HOURS,
+    now,
+    windowAheadDays: REFRESH_WIDGET_WINDOW_DAYS_AHEAD,
+    windowBehindDays: REFRESH_WIDGET_WINDOW_DAYS_BEHIND,
+  });
+  if (!best) return null;
+
+  return {
+    tmdbId: show.tmdbId,
+    showTitle: show.title,
+    posterPath: show.posterPath,
+    next: {
+      airDate: best.candidate.airDate ?? "",
+      seasonNumber: best.candidate.season,
+      episodeNumber: best.candidate.number,
+      episodeName: best.candidate.name,
+    },
+    daysUntil: best.availability.daysUntil,
+    availableAt: best.availability.availableAt,
+    hasTime: best.availability.hasTime,
+  };
+}
+
 async function refreshHousehold(
   db: admin.firestore.Firestore,
   hhId: string,
   apiKey: string,
+  clientId: string,
+  idCache: TraktIdCache,
   today: string,
+  now: Date,
 ): Promise<{ pushed: number; errors: number }> {
   // 1. All TV entries (not just watching — completed/dropped/watched
   //    state is needed to exclude finished shows the watchlist still
@@ -277,20 +363,18 @@ async function refreshHousehold(
 
   const rows: UpNextRow[] = [];
   for (const show of shows) {
-    const next = await fetchNextEpisode(show.tmdbId, apiKey);
-    if (!next) continue;
-    rows.push({
-      tmdbId: show.tmdbId,
-      showTitle: show.title,
-      posterPath: show.posterPath,
-      next,
-      daysUntil: daysBetweenUtc(today, next.airDate),
-    });
+    try {
+      const row = await resolveShowRow(show, apiKey, clientId, idCache, now);
+      if (row) rows.push(row);
+    } catch (err) {
+      // A single show's failure must never abort the batch.
+      logger.warn(`refreshUpNextWidget: row resolution failed for tmdbId=${show.tmdbId}`, err);
+    }
   }
 
   const picked = pickUpNextRows(today, rows);
   // We still send when picked is empty so the widget clears stale tiles.
-  const payload = buildFcmDataPayload(picked);
+  const payload = buildFcmDataPayload(picked, now);
 
   const membersSnap = await db.collection(`households/${hhId}/members`).get();
   const tokens: string[] = [];
@@ -338,7 +422,7 @@ export const refreshUpNextWidgetEvery6Hours = onSchedule(
     schedule: "0 */6 * * *",
     timeZone: "Etc/UTC",
     region: "europe-west2",
-    secrets: [TMDB_API_KEY],
+    secrets: [TMDB_API_KEY, TRAKT_CLIENT_ID],
   },
   async () => {
     const apiKey = TMDB_API_KEY.value();
@@ -346,13 +430,27 @@ export const refreshUpNextWidgetEvery6Hours = onSchedule(
       logger.error("refreshUpNextWidget: TMDB_API_KEY secret unset; skipping");
       return;
     }
-    const today = todayUtcIso();
+    // Empty is a valid runtime state (secret not yet set for this project) —
+    // resolveShowRow treats an empty clientId as "skip Trakt, use the
+    // date-only fallback", same as a Trakt outage would.
+    const clientId = TRAKT_CLIENT_ID.value() ?? "";
+    const now = new Date();
+    const today = todayUtcIso(now);
+    const idCache = createTraktIdCache();
     const db = admin.firestore();
     const hhSnap = await db.collection("households").get();
     let totalPushed = 0;
     let totalErrors = 0;
     for (const hh of hhSnap.docs) {
-      const { pushed, errors } = await refreshHousehold(db, hh.id, apiKey, today);
+      const { pushed, errors } = await refreshHousehold(
+        db,
+        hh.id,
+        apiKey,
+        clientId,
+        idCache,
+        today,
+        now,
+      );
       totalPushed += pushed;
       totalErrors += errors;
     }
