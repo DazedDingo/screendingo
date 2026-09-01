@@ -572,11 +572,13 @@ class _UpNextHealthTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(upNextSummaryProvider);
     return async.when(
-      loading: () => const ListTile(
+      loading: () => ListTile(
         dense: true,
-        leading: Icon(Icons.schedule_outlined),
-        title: Text('Up next'),
-        subtitle: Text('Loading…'),
+        leading: const Icon(Icons.schedule_outlined),
+        title: const Text('Up next'),
+        subtitle: const Text('Loading…'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => context.push('/upnext-history'),
       ),
       error: (_, _) => const SizedBox.shrink(),
       data: (s) {
@@ -602,6 +604,8 @@ class _UpNextHealthTile extends ConsumerWidget {
           leading: const Icon(Icons.schedule_outlined),
           title: const Text('Up next'),
           subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push('/upnext-history'),
         );
       },
     );

@@ -1,7 +1,7 @@
 name: watchnext
 description: "ScreenDingo — a shared movie & TV recommender for two-person households."
 publish_to: 'none'
-version: 0.12.30+182
+version: 0.12.31+183
 
 environment:
   sdk: ^3.11.4
