@@ -26,6 +26,7 @@ import 'screens/decide/decide_screen.dart';
 import 'screens/predict/reveal_screen.dart';
 import 'screens/share/share_confirm_sheet.dart';
 import 'screens/title_detail/title_detail_screen.dart';
+import 'screens/upnext_history/upnext_history_screen.dart';
 import 'services/home_widget_service.dart';
 import 'services/notification_service.dart';
 import 'widgets/liquid_nav_bar.dart';
@@ -147,6 +148,13 @@ final _router = GoRouter(
         GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
         GoRoute(path: '/discover', builder: (_, _) => const DiscoverScreen()),
         GoRoute(path: '/library', builder: (_, _) => const LibraryScreen()),
+        // "Recently aired" history — companion to the Home Up Next row.
+        // Registered inside the shell (not alongside /title) so the nav
+        // bar stays visible while browsing it.
+        GoRoute(
+          path: '/upnext-history',
+          builder: (_, _) => const UpNextHistoryScreen(),
+        ),
         // Back-compat redirects — old deep links and existing notifications
         // can still point at the retired routes.
         GoRoute(path: '/watchlist', redirect: (_, _) => '/library'),

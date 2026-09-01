@@ -2406,7 +2406,23 @@ class _UpNextRow extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionLabel('UP NEXT'),
+        Row(
+          children: [
+            const Expanded(child: _SectionLabel('UP NEXT')),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: IconButton(
+                icon: const Icon(Icons.history, size: 16),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints.tightFor(width: 28, height: 20),
+                tooltip: 'Recently aired',
+                onPressed: () => context.push('/upnext-history'),
+              ),
+            ),
+          ],
+        ),
         if (useStrip)
           _UpNextStrip(episodes: items)
         else

@@ -261,7 +261,11 @@ UpNextEpisode? buildUpNextEpisode({
 /// `/search/tmdb` endpoint for it again.
 const String kUpNextTraktIdCacheKey = 'wn_trakt_show_ids';
 
-Map<int, int> _loadTraktIdCache(SharedPreferences prefs) {
+/// Loads the tmdbId→traktId lookup cache. Public — shared by
+/// [upNextProvider] and `upNextHistoryProvider` (Recently Aired) so both
+/// surfaces read/write one on-disk cache instead of maintaining separate
+/// copies.
+Map<int, int> loadTraktIdCache(SharedPreferences prefs) {
   final raw = prefs.getString(kUpNextTraktIdCacheKey);
   if (raw == null || raw.isEmpty) return {};
   try {
@@ -280,7 +284,8 @@ Map<int, int> _loadTraktIdCache(SharedPreferences prefs) {
   }
 }
 
-Future<void> _saveTraktIdCache(
+/// Saves the tmdbId→traktId lookup cache. Public — see [loadTraktIdCache].
+Future<void> saveTraktIdCache(
   SharedPreferences prefs,
   Map<int, int> cache,
 ) async {
@@ -354,7 +359,7 @@ final upNextProvider =
   final lagHours = ref.watch(upNextLagHoursProvider);
   final now = DateTime.now();
 
-  final traktIdCache = _loadTraktIdCache(prefs);
+  final traktIdCache = loadTraktIdCache(prefs);
   var traktIdCacheDirty = false;
 
   Future<int?> resolveTraktShowId(int tmdbId) async {
@@ -415,7 +420,7 @@ final upNextProvider =
 
   final results = await Future.wait(fetches);
   if (traktIdCacheDirty) {
-    await _saveTraktIdCache(prefs, traktIdCache);
+    await saveTraktIdCache(prefs, traktIdCache);
   }
   final fresh = results.whereType<UpNextEpisode>().toList()
     ..sort((a, b) => a.availableAt.compareTo(b.availableAt));
