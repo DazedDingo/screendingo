@@ -6,6 +6,10 @@ on:
     paths-ignore:
       - '**/*.md'
       - '.github/**'
+      # Cloud Functions never ship in the APK — a functions-only push must
+      # not rebuild + re-publish the release for the unchanged pubspec tag
+      # (softprops would overwrite the existing release's notes and asset).
+      - 'functions/**'
       - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
