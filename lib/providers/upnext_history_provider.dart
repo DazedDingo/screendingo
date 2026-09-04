@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:developer' as developer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/trakt_season_air_cache.dart';
 import 'tmdb_provider.dart';
 import 'trakt_provider.dart';
 import 'up_next_lag_provider.dart';
@@ -52,6 +56,67 @@ class UpNextHistoryEntry {
     required this.availableAt,
     required this.hasAirTime,
   });
+
+  Map<String, dynamic> toJson() => {
+        'tmdbId': tmdbId,
+        'showTitle': showTitle,
+        'showPosterPath': showPosterPath,
+        'season': season,
+        'number': number,
+        'episodeName': episodeName,
+        'stillPath': stillPath,
+        'availableAt': availableAt.toIso8601String(),
+        'hasAirTime': hasAirTime,
+      };
+
+  factory UpNextHistoryEntry.fromJson(Map<String, dynamic> json) {
+    return UpNextHistoryEntry(
+      tmdbId: (json['tmdbId'] as num).toInt(),
+      showTitle: json['showTitle'] as String? ?? '',
+      showPosterPath: json['showPosterPath'] as String?,
+      season: (json['season'] as num?)?.toInt() ?? 0,
+      number: (json['number'] as num?)?.toInt() ?? 0,
+      episodeName: json['episodeName'] as String?,
+      stillPath: json['stillPath'] as String?,
+      availableAt: DateTime.parse(json['availableAt'] as String),
+      hasAirTime: json['hasAirTime'] as bool? ?? false,
+    );
+  }
+}
+
+/// SharedPreferences key for the disk-backed cache of the most recent
+/// successful "Recently aired" computation — mirrors
+/// `upnext_provider.dart`'s `kUpNextCacheKey` so the history screen also
+/// paints instantly from a stale-while-revalidate cache instead of a
+/// blank loading spinner on every visit.
+const String kUpNextHistoryCacheKey = 'wn_upnext_history_cache';
+
+class _UpNextHistoryDiskCache {
+  static List<UpNextHistoryEntry>? load(SharedPreferences prefs) {
+    final raw = prefs.getString(kUpNextHistoryCacheKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return null;
+      return decoded
+          .whereType<Map>()
+          .map((e) =>
+              UpNextHistoryEntry.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      developer.log('Up Next history cache corrupt, dropping: $e',
+          name: 'upnext');
+      return null;
+    }
+  }
+
+  static Future<void> save(
+    SharedPreferences prefs,
+    List<UpNextHistoryEntry> items,
+  ) async {
+    final encoded = jsonEncode(items.map((e) => e.toJson()).toList());
+    await prefs.setString(kUpNextHistoryCacheKey, encoded);
+  }
 }
 
 /// Parses a TMDB episode map's `air_date` into a local-midnight
@@ -77,16 +142,28 @@ bool _inHistoryWindow(DateTime availableAt, DateTime cutoff, DateTime now) {
 /// [kUpNextHistoryDays] days — the "Recently aired" history screen. Reuses
 /// the same eligibility rules ([upNextEligibleTvIds]) and Trakt real-air-
 /// time pipeline as [upNextProvider] (gotcha 52), including the shared
-/// on-disk tmdbId→traktId cache ([loadTraktIdCache] / [saveTraktIdCache]).
+/// on-disk tmdbId→traktId cache ([loadTraktIdCache] / [saveTraktIdCache])
+/// AND the shared season air-time cache (`TraktSeasonAirCache`) — a
+/// season resolved by the Home row (or vice versa) is free here for the
+/// rest of its 6h TTL, and this provider's own resolution warms the cache
+/// for the others in turn.
+///
+/// Stale-while-revalidate, mirroring [upNextProvider]'s stream shape:
+/// yields the on-disk cache first (if any) so the screen paints
+/// instantly, then computes fresh and yields again once the fan-out
+/// completes.
 ///
 /// Per eligible show: reads `last_episode_to_air` off a lean `/tv/{id}`
 /// call; if that episode's resolved `availableAt` is already older than
 /// the lookback window, the show contributes nothing and — importantly —
 /// the season fetch is skipped entirely (no point paying for it). Only
 /// once the show clears that bar do we fetch the full season
-/// (`tmdb.tvSeason`) and resolve every episode up to and including the
-/// last-aired one, keeping only the ones that actually fall inside the
-/// window.
+/// (`tmdb.tvSeason`, for episode name/still_path display metadata — TMDB
+/// is free, gotcha "operating cost") and resolve every episode up to and
+/// including the last-aired one, keeping only the ones that actually fall
+/// inside the window. Episode DATES come from the ONE Trakt season call
+/// per show (`resolveSeasonMap`/`TraktSeasonAirCache`), not a per-episode
+/// Trakt call — that's the whole point of the season-level cache.
 ///
 /// Known limitation: episodes from the *previous* season that fell inside
 /// the window are not fetched — only the season containing
@@ -100,12 +177,30 @@ bool _inHistoryWindow(DateTime availableAt, DateTime cutoff, DateTime now) {
 /// error; Trakt failures specifically degrade to the date-only fallback
 /// rather than dropping the episode (mirrors [upNextProvider]).
 final upNextHistoryProvider =
-    FutureProvider.autoDispose<List<UpNextHistoryEntry>>((ref) async {
+    StreamProvider.autoDispose<List<UpNextHistoryEntry>>((ref) async* {
+  final prefs = await SharedPreferences.getInstance();
+  final cached = _UpNextHistoryDiskCache.load(prefs);
+  if (cached != null) yield cached;
+
+  // Wait for watchEntriesProvider to actually emit before deciding
+  // eligibility — mirrors upNextProvider's guard (gotcha: a StreamProvider
+  // that yields on a still-loading dependency settles its AsyncValue
+  // prematurely with the wrong "empty" answer; returning without yielding
+  // keeps this generation in the loading state until the real Firestore
+  // snapshot lands and triggers a fresh generator run via `ref.watch`).
   final entriesAsync = ref.watch(watchEntriesProvider);
-  final entries = entriesAsync.value ?? const [];
+  if (entriesAsync.value == null) return;
+  final entries = entriesAsync.value!;
   final watchlist = ref.watch(visibleWatchlistProvider);
   final tvIds = upNextEligibleTvIds(entries, watchlist);
-  if (tvIds.isEmpty) return const [];
+  if (tvIds.isEmpty) {
+    if (cached == null || cached.isEmpty) {
+      const empty = <UpNextHistoryEntry>[];
+      await _UpNextHistoryDiskCache.save(prefs, empty);
+      yield empty;
+    }
+    return;
+  }
 
   final tmdb = ref.watch(tmdbServiceProvider);
   final trakt = ref.watch(traktServiceProvider);
@@ -113,9 +208,10 @@ final upNextHistoryProvider =
   final now = DateTime.now();
   final cutoff = now.subtract(const Duration(days: kUpNextHistoryDays));
 
-  final prefs = await SharedPreferences.getInstance();
   final traktIdCache = loadTraktIdCache(prefs);
   var traktIdCacheDirty = false;
+  final seasonAirCache = TraktSeasonAirCache(prefs);
+  final seasonMemo = <String, Map<int, DateTime?>?>{};
 
   Future<int?> resolveTraktShowId(int tmdbId) async {
     if (traktIdCache.containsKey(tmdbId)) return traktIdCache[tmdbId];
@@ -127,22 +223,29 @@ final upNextHistoryProvider =
     return resolved;
   }
 
-  Future<DateTime?> resolveAirsAtUtc(
-    int tmdbId,
+  Future<Map<int, DateTime?>?> resolveSeasonMap(
+    int traktShowId,
     int season,
-    int number,
   ) async {
+    final memoKey = '$traktShowId:$season';
+    if (seasonMemo.containsKey(memoKey)) return seasonMemo[memoKey];
+    final fromDisk = seasonAirCache.get(traktShowId, season, now);
+    if (fromDisk != null) {
+      seasonMemo[memoKey] = fromDisk;
+      return fromDisk;
+    }
     try {
-      final traktShowId = await resolveTraktShowId(tmdbId);
-      if (traktShowId == null) return null;
-      return await trakt.fetchEpisodeFirstAired(
+      final fetched = await trakt.fetchSeasonFirstAired(
         traktShowId: traktShowId,
         season: season,
-        number: number,
       );
+      if (fetched != null) {
+        seasonAirCache.put(traktShowId, season, fetched, now);
+      }
+      seasonMemo[memoKey] = fetched;
+      return fetched;
     } catch (_) {
-      // Trakt failing for this episode just means no real air time — the
-      // caller falls back to the date-only availableAt.
+      seasonMemo[memoKey] = null;
       return null;
     }
   }
@@ -164,8 +267,12 @@ final upNextHistoryProvider =
       final lastSeason = (last['season_number'] as num?)?.toInt() ?? 0;
       final lastNumber = (last['episode_number'] as num?)?.toInt() ?? 0;
 
-      final lastAirsAtUtc =
-          await resolveAirsAtUtc(tmdbId, lastSeason, lastNumber);
+      final traktShowId = await resolveTraktShowId(tmdbId);
+      final seasonMap = traktShowId != null
+          ? await resolveSeasonMap(traktShowId, lastSeason)
+          : null;
+
+      final lastAirsAtUtc = seasonMap?[lastNumber];
       final lastAvailableAt = resolveAvailableAt(lastAirDate, lastAirsAtUtc);
       if (!lastAvailableAt.isAfter(cutoff)) {
         // Nothing recent for this show — skip the season fetch entirely.
@@ -187,8 +294,7 @@ final upNextHistoryProvider =
         if (epNumber > lastNumber) continue;
         final epAirDate = _episodeAirDate(ep);
         if (epAirDate == null) continue;
-        final epAirsAtUtc =
-            await resolveAirsAtUtc(tmdbId, lastSeason, epNumber);
+        final epAirsAtUtc = seasonMap?[epNumber];
         final availableAt = resolveAvailableAt(epAirDate, epAirsAtUtc);
         if (!_inHistoryWindow(availableAt, cutoff, now)) continue;
         results.add(UpNextHistoryEntry(
@@ -216,8 +322,11 @@ final upNextHistoryProvider =
   if (traktIdCacheDirty) {
     await saveTraktIdCache(prefs, traktIdCache);
   }
-  return results.expand((e) => e).toList()
+  await seasonAirCache.save();
+  final fresh = results.expand((e) => e).toList()
     ..sort((a, b) => b.availableAt.compareTo(a.availableAt));
+  await _UpNextHistoryDiskCache.save(prefs, fresh);
+  yield fresh;
 });
 
 const List<String> _kWeekdayAbbr = [

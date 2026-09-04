@@ -112,6 +112,7 @@ List<Override> get demoOverrides => [
       // TMDB-sourced surfaces — no network in demo mode.
       upcomingForYouProvider
           .overrideWith((_) => Stream.value(demoUpcoming)),
-      upNextProvider.overrideWith((_) => Stream.value(demoUpNext)),
+      upNextProvider.overrideWith((_) => Stream.value(
+          UpNextData(episodes: demoUpNext, recentCount: demoUpNext.length))),
       rewatchForYouProvider.overrideWith((_) => demoRewatch),
     ];

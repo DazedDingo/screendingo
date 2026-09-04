@@ -234,26 +234,37 @@ class TraktService implements RatingPusher {
     return null;
   }
 
-  /// Real broadcast time (UTC) for one episode, straight from Trakt —
-  /// TMDB only carries a date-only `air_date`. Returns null when Trakt
-  /// has no `first_aired` for the episode or the lookup fails outright.
-  Future<DateTime?> fetchEpisodeFirstAired({
+  /// Real broadcast times (UTC) for every episode in a season, straight
+  /// from Trakt — ONE call per show-season instead of one per episode
+  /// (supersedes the old per-episode `fetchEpisodeFirstAired`, removed).
+  /// TMDB only carries a date-only `air_date`; Trakt's `first_aired`
+  /// carries the real broadcast instant. Returns a map of episode
+  /// `number` → `first_aired` (UTC), with a null value on episodes whose
+  /// `first_aired` is missing/unparseable rather than dropping the whole
+  /// map. Returns null (not `{}`) on non-200, network error, or malformed
+  /// (non-array) body — an empty array response still yields `{}`.
+  Future<Map<int, DateTime?>?> fetchSeasonFirstAired({
     required int traktShowId,
     required int season,
-    required int number,
   }) async {
     final data = await _getPublicJson(
-      '/shows/$traktShowId/seasons/$season/episodes/$number',
+      '/shows/$traktShowId/seasons/$season',
       query: {'extended': 'full'},
     );
-    if (data is! Map) return null;
-    final firstAired = data['first_aired'];
-    if (firstAired is! String || firstAired.isEmpty) return null;
-    try {
-      return DateTime.parse(firstAired).toUtc();
-    } catch (_) {
-      return null;
+    if (data is! List) return null;
+    final out = <int, DateTime?>{};
+    for (final row in data) {
+      if (row is! Map) continue;
+      final number = (row['number'] as num?)?.toInt();
+      if (number == null) continue;
+      final firstAired = row['first_aired'];
+      DateTime? parsed;
+      if (firstAired is String && firstAired.isNotEmpty) {
+        parsed = DateTime.tryParse(firstAired)?.toUtc();
+      }
+      out[number] = parsed;
     }
+    return out;
   }
 
   Future<List<Map<String, dynamic>>> fetchHistory({

@@ -111,7 +111,7 @@ ProviderContainer _container({
   // upNextSummaryProvider is autoDispose — without an active listener it
   // gets disposed mid-load and the future read throws "disposed during
   // loading state". A no-op listen keeps it alive for the test.
-  container.listen<AsyncValue<List<UpNextEpisode>>>(
+  container.listen<AsyncValue<UpNextData>>(
     upNextProvider,
     (_, _) {},
   );
@@ -137,7 +137,8 @@ void main() {
       final container = _container(client: client, entries: const []);
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, isEmpty);
+      expect(out.episodes, isEmpty);
+      expect(out.recentCount, 0);
     });
 
     test('surfaces an in-progress show with a next episode this week',
@@ -164,12 +165,12 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(1));
-      expect(out.first.tmdbId, 100);
-      expect(out.first.season, 3);
-      expect(out.first.number, 4);
-      expect(out.first.daysUntilAir, 2);
-      expect(out.first.episodeName, 'Big Reveal');
+      expect(out.episodes, hasLength(1));
+      expect(out.episodes.first.tmdbId, 100);
+      expect(out.episodes.first.season, 3);
+      expect(out.episodes.first.number, 4);
+      expect(out.episodes.first.daysUntilAir, 2);
+      expect(out.episodes.first.episodeName, 'Big Reveal');
     });
 
     test('surfaces a watchlist TV show without marking it watching',
@@ -197,10 +198,10 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(1));
-      expect(out.first.tmdbId, 150);
-      expect(out.first.season, 1);
-      expect(out.first.daysUntilAir, 3);
+      expect(out.episodes, hasLength(1));
+      expect(out.episodes.first.tmdbId, 150);
+      expect(out.episodes.first.season, 1);
+      expect(out.episodes.first.daysUntilAir, 3);
     });
 
     test('watchlist movies are ignored (Up Next stays TV-only)', () async {
@@ -216,7 +217,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, isEmpty);
+      expect(out.episodes, isEmpty);
       expect(tvCalls, 0,
           reason: 'a movie watchlist row should not trigger a TMDB fetch');
     });
@@ -245,7 +246,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(1));
+      expect(out.episodes, hasLength(1));
       expect(tvCalls, 1, reason: 'deduped shows should fetch TMDB once');
     });
 
@@ -269,7 +270,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, isEmpty,
+      expect(out.episodes, isEmpty,
           reason: 'watched-by-a-member kills the watchlist eligibility');
     });
 
@@ -290,7 +291,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, isEmpty);
+      expect(out.episodes, isEmpty);
     });
 
     test('drops shows whose next episode is more than 7 days out', () async {
@@ -314,7 +315,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, isEmpty);
+      expect(out.episodes, isEmpty);
     });
 
     test('keeps an episode that aired yesterday (within recent grace)',
@@ -339,8 +340,8 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(1));
-      expect(out.first.daysUntilAir, -1);
+      expect(out.episodes, hasLength(1));
+      expect(out.episodes.first.daysUntilAir, -1);
     });
 
     test('drops shows TMDB reports as having no next episode', () async {
@@ -358,7 +359,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, isEmpty);
+      expect(out.episodes, isEmpty);
     });
 
     test('a single show throwing on TMDB does not sink the row', () async {
@@ -385,7 +386,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out.map((e) => e.tmdbId).toList(), [600]);
+      expect(out.episodes.map((e) => e.tmdbId).toList(), [600]);
     });
 
     test('sorts by air date ascending and caps at kUpNextMaxTiles', () async {
@@ -420,9 +421,9 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(kUpNextMaxTiles));
+      expect(out.episodes, hasLength(kUpNextMaxTiles));
       // 703 (today=0), 701 (1), 702 (4) — soonest three.
-      expect(out.map((e) => e.tmdbId).toList(), [703, 701, 702]);
+      expect(out.episodes.map((e) => e.tmdbId).toList(), [703, 701, 702]);
     });
 
     test('only watches TV (movies in progress are ignored)', () async {
@@ -445,7 +446,7 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, isEmpty);
+      expect(out.episodes, isEmpty);
       expect(called, isFalse,
           reason: 'no TMDB call should fire for non-TV in-progress entries');
     });
@@ -453,7 +454,7 @@ void main() {
     test('yields disk cache first, then fresh', () async {
       // Pre-seed prefs with a previous-session cache. Stream should emit
       // the cached snapshot immediately, then the fresh TMDB result.
-      final cached = [
+      final cached = UpNextData(episodes: [
         UpNextEpisode(
           tmdbId: 999,
           showTitle: 'Cached Show',
@@ -464,9 +465,9 @@ void main() {
           airDate: DateTime(2026, 1, 1),
           daysUntilAir: 0,
         ),
-      ];
+      ], recentCount: 2);
       SharedPreferences.setMockInitialValues({
-        kUpNextCacheKey: jsonEncode(cached.map((e) => e.toJson()).toList()),
+        kUpNextCacheKey: jsonEncode(cached.toJson()),
       });
 
       final client = MockClient((req) async {
@@ -489,8 +490,8 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      final emitted = <List<UpNextEpisode>>[];
-      container.listen<AsyncValue<List<UpNextEpisode>>>(
+      final emitted = <UpNextData>[];
+      container.listen<AsyncValue<UpNextData>>(
         upNextProvider,
         (_, next) {
           final v = next.value;
@@ -505,10 +506,51 @@ void main() {
 
       expect(emitted.length, greaterThanOrEqualTo(2),
           reason: 'expected at least cached + fresh emits');
-      expect(emitted.first.first.tmdbId, 999,
+      expect(emitted.first.episodes.first.tmdbId, 999,
           reason: 'first emit should be the disk cache');
-      expect(emitted.last.first.tmdbId, 100,
+      expect(emitted.first.recentCount, 2,
+          reason: 'cached recentCount should round-trip on the first emit');
+      expect(emitted.last.episodes.first.tmdbId, 100,
           reason: 'last emit should be the fresh TMDB result');
+    });
+
+    test('old bare-list disk cache parses as episodes with recentCount 0 '
+        '(back-compat)', () async {
+      final oldShapeList = [
+        UpNextEpisode(
+          tmdbId: 777,
+          showTitle: 'Legacy Cache Show',
+          season: 1,
+          number: 1,
+          airDate: DateTime(2026, 1, 1),
+          daysUntilAir: 0,
+        ),
+      ];
+      SharedPreferences.setMockInitialValues({
+        kUpNextCacheKey:
+            jsonEncode(oldShapeList.map((e) => e.toJson()).toList()),
+      });
+
+      final client = MockClient((_) async => _json({}));
+      final container = _container(client: client, entries: const []);
+      addTearDown(container.dispose);
+
+      final emitted = <UpNextData>[];
+      container.listen<AsyncValue<UpNextData>>(
+        upNextProvider,
+        (_, next) {
+          final v = next.value;
+          if (v != null) emitted.add(v);
+        },
+        fireImmediately: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(emitted, isNotEmpty);
+      expect(emitted.first.episodes, hasLength(1));
+      expect(emitted.first.episodes.first.tmdbId, 777);
+      expect(emitted.first.recentCount, 0,
+          reason: 'a pre-recentCount on-disk cache defaults to 0');
     });
 
     test('empty in-progress with no cache yields [] and saves []', () async {
@@ -525,8 +567,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(kUpNextCacheKey), '[]');
-      expect(out, isEmpty);
+      expect(prefs.getString(kUpNextCacheKey),
+          jsonEncode(const UpNextData(episodes: [], recentCount: 0).toJson()));
+      expect(out.episodes, isEmpty);
     });
 
     test('empty in-progress with non-empty cache keeps the cache intact',
@@ -537,7 +580,7 @@ void main() {
       // emit (probably carrying real data) re-runs the stream and
       // either confirms via the non-empty branch or stays paused
       // here — either way the cached row stays visible.
-      final stale = [
+      final stale = UpNextData(episodes: [
         UpNextEpisode(
           tmdbId: 555,
           showTitle: 'Stale',
@@ -546,9 +589,9 @@ void main() {
           airDate: DateTime(2026, 1, 1),
           daysUntilAir: 0,
         ),
-      ];
+      ]);
       SharedPreferences.setMockInitialValues({
-        kUpNextCacheKey: jsonEncode(stale.map((e) => e.toJson()).toList()),
+        kUpNextCacheKey: jsonEncode(stale.toJson()),
       });
 
       final client = MockClient((_) async => _json({}));
@@ -560,7 +603,7 @@ void main() {
 
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(kUpNextCacheKey);
-      expect(raw, isNot('[]'),
+      expect(raw, isNot(jsonEncode(const UpNextData(episodes: [], recentCount: 0).toJson())),
           reason:
               'transient empty must not nuke a non-empty cache');
       expect(raw, contains('555'));
@@ -572,7 +615,7 @@ void main() {
       // persistence emits an empty snapshot BEFORE the server data
       // arrives. The provider must not nuke its cached row during that
       // window — the next emit carries the real shows.
-      final cached = [
+      final cached = UpNextData(episodes: [
         UpNextEpisode(
           tmdbId: 100,
           showTitle: 'Severance',
@@ -581,9 +624,9 @@ void main() {
           airDate: DateTime(2026, 1, 1),
           daysUntilAir: 0,
         ),
-      ];
+      ]);
       SharedPreferences.setMockInitialValues({
-        kUpNextCacheKey: jsonEncode(cached.map((e) => e.toJson()).toList()),
+        kUpNextCacheKey: jsonEncode(cached.toJson()),
       });
 
       // Stream: emit empty first (cold-start blip), then real shows.
@@ -613,8 +656,8 @@ void main() {
             .overrideWith((_) => _FixedLagController(kUpNextLagHoursDefault)),
         watchEntriesProvider.overrideWith((_) => controller.stream),
       ]);
-      final emitted = <List<UpNextEpisode>>[];
-      container.listen<AsyncValue<List<UpNextEpisode>>>(
+      final emitted = <UpNextData>[];
+      container.listen<AsyncValue<UpNextData>>(
         upNextProvider,
         (_, next) {
           if (next.value != null) emitted.add(next.value!);
@@ -636,14 +679,17 @@ void main() {
       // The bug: row used to flicker to empty here. After the fix, the
       // cached row remains the visible state.
       final stateMidEmpty = container.read(upNextProvider);
-      expect(stateMidEmpty.value, isNotEmpty,
+      expect(stateMidEmpty.value?.episodes, isNotEmpty,
           reason:
               'cached row must survive a transient empty Firestore emit');
-      expect(stateMidEmpty.value!.first.tmdbId, 100);
+      expect(stateMidEmpty.value!.episodes.first.tmdbId, 100);
 
       // Cache must NOT have been overwritten with [].
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(kUpNextCacheKey), isNot('[]'),
+      expect(
+          prefs.getString(kUpNextCacheKey),
+          isNot(jsonEncode(
+              const UpNextData(episodes: [], recentCount: 0).toJson())),
           reason:
               'transient empty must not nuke the on-disk cache');
 
@@ -652,12 +698,12 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 60));
 
       final stateAfter = container.read(upNextProvider);
-      expect(stateAfter.value, hasLength(1));
-      expect(stateAfter.value!.first.tmdbId, 100);
+      expect(stateAfter.value?.episodes, hasLength(1));
+      expect(stateAfter.value!.episodes.first.tmdbId, 100);
 
       // No emitted state should ever have been empty (which would have
       // been the visible flicker).
-      expect(emitted.where((e) => e.isEmpty), isEmpty,
+      expect(emitted.where((e) => e.episodes.isEmpty), isEmpty,
           reason:
               'row should never visibly flicker through an empty state');
     });
@@ -669,7 +715,7 @@ void main() {
       // and immediately clear the cache + yield empty. The fix guards
       // on `entriesAsync.value == null` so the cached yield remains
       // the visible state until authoritative data lands.
-      final cached = [
+      final cached = UpNextData(episodes: [
         UpNextEpisode(
           tmdbId: 100,
           showTitle: 'Cached Show',
@@ -678,9 +724,9 @@ void main() {
           airDate: DateTime(2026, 1, 1),
           daysUntilAir: 0,
         ),
-      ];
+      ]);
       SharedPreferences.setMockInitialValues({
-        kUpNextCacheKey: jsonEncode(cached.map((e) => e.toJson()).toList()),
+        kUpNextCacheKey: jsonEncode(cached.toJson()),
       });
 
       final client = MockClient((_) async => _json({}));
@@ -691,7 +737,7 @@ void main() {
         watchEntriesProvider
             .overrideWith((_) => const Stream<List<WatchEntry>>.empty()),
       ]);
-      container.listen<AsyncValue<List<UpNextEpisode>>>(
+      container.listen<AsyncValue<UpNextData>>(
         upNextProvider,
         (_, _) {},
       );
@@ -701,13 +747,16 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       final state = container.read(upNextProvider);
-      expect(state.value?.first.tmdbId, 100,
+      expect(state.value?.episodes.first.tmdbId, 100,
           reason: 'cache should remain visible while entries is still loading');
       // Cache must NOT have been overwritten with [] during the loading
       // window — the original cache JSON should still be there.
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(kUpNextCacheKey), isNotNull);
-      expect(prefs.getString(kUpNextCacheKey), isNot('[]'),
+      expect(
+          prefs.getString(kUpNextCacheKey),
+          isNot(jsonEncode(
+              const UpNextData(episodes: [], recentCount: 0).toJson())),
           reason: 'cache must not be wiped while watchEntries is loading');
     });
 
@@ -761,8 +810,8 @@ void main() {
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
       // No throw, no garbage cached entry — just the fresh result.
-      expect(out, hasLength(1));
-      expect(out.first.tmdbId, 100);
+      expect(out.episodes, hasLength(1));
+      expect(out.episodes.first.tmdbId, 100);
     });
 
     test(
@@ -794,8 +843,10 @@ void main() {
             },
           ]);
         }
-        if (req.url.path.contains('/shows/555/seasons/3/episodes/4')) {
-          return _json({'first_aired': airsAt.toIso8601String()});
+        if (req.url.path.contains('/shows/555/seasons/3')) {
+          return _json([
+            {'number': 4, 'first_aired': airsAt.toIso8601String()},
+          ]);
         }
         return http.Response('not mocked trakt: ${req.url}', 404);
       });
@@ -807,12 +858,12 @@ void main() {
       );
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(1));
-      expect(out.first.hasAirTime, isTrue);
-      expect(out.first.airsAtUtc, isNotNull);
-      expect(out.first.airsAtUtc!.isAtSameMomentAs(airsAt), isTrue);
+      expect(out.episodes, hasLength(1));
+      expect(out.episodes.first.hasAirTime, isTrue);
+      expect(out.episodes.first.airsAtUtc, isNotNull);
+      expect(out.episodes.first.airsAtUtc!.isAtSameMomentAs(airsAt), isTrue);
       // lagHours=0 → availableAt is exactly airsAtUtc (in local time).
-      expect(out.first.availableAt.isAtSameMomentAs(airsAt), isTrue);
+      expect(out.episodes.first.availableAt.isAtSameMomentAs(airsAt), isTrue);
     });
 
     test(
@@ -845,10 +896,10 @@ void main() {
           _container(client: client, entries: [_watchingTv(210)]);
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(1));
-      expect(out.first.season, 2);
-      expect(out.first.number, 9);
-      expect(out.first.daysUntilAir, 0);
+      expect(out.episodes, hasLength(1));
+      expect(out.episodes.first.season, 2);
+      expect(out.episodes.first.number, 9);
+      expect(out.episodes.first.daysUntilAir, 0);
     });
 
     test('Trakt 404 falls back to date-only behaviour (hasAirTime false)',
@@ -871,10 +922,10 @@ void main() {
           _container(client: client, entries: [_watchingTv(220)]);
       addTearDown(container.dispose);
       final out = await container.read(upNextProvider.future);
-      expect(out, hasLength(1));
-      expect(out.first.hasAirTime, isFalse);
-      expect(out.first.airsAtUtc, isNull);
-      expect(out.first.availableAt, out.first.airDate);
+      expect(out.episodes, hasLength(1));
+      expect(out.episodes.first.hasAirTime, isFalse);
+      expect(out.episodes.first.airsAtUtc, isNull);
+      expect(out.episodes.first.availableAt, out.episodes.first.airDate);
     });
 
     test(
@@ -905,8 +956,10 @@ void main() {
             },
           ]);
         }
-        if (req.url.path.contains('/shows/777/seasons/1/episodes/1')) {
-          return _json({'first_aired': null});
+        if (req.url.path.contains('/shows/777/seasons/1')) {
+          return _json([
+            {'number': 1, 'first_aired': null},
+          ]);
         }
         return http.Response('unexpected trakt: ${req.url}', 404);
       });
@@ -929,6 +982,239 @@ void main() {
 
       expect(searchCalls, 1,
           reason: 'second run should reuse the cached tmdb→trakt id');
+    });
+
+    test(
+        'second run with a warm season cache makes zero Trakt season '
+        'requests (steady-state Home open costs zero Trakt calls)',
+        () async {
+      var seasonCalls = 0;
+      final tmdbClient = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/240')) {
+          return _json({
+            'id': 240,
+            'name': 'Warm Cache Show',
+            'next_episode_to_air': {
+              'season_number': 2,
+              'episode_number': 3,
+              'air_date': _dateStr(2),
+            },
+          });
+        }
+        return http.Response('unexpected', 404);
+      });
+      final traktClient = MockClient((req) async {
+        if (req.url.path.contains('/search/tmdb/240')) {
+          return _json([
+            {
+              'type': 'show',
+              'show': {'ids': {'trakt': 888}},
+            },
+          ]);
+        }
+        if (req.url.path.contains('/shows/888/seasons/2')) {
+          seasonCalls++;
+          return _json([
+            {'number': 3, 'first_aired': DateTime.now().toUtc().add(const Duration(days: 2)).toIso8601String()},
+          ]);
+        }
+        return http.Response('unexpected trakt: ${req.url}', 404);
+      });
+
+      final container1 = _container(
+        client: tmdbClient,
+        entries: [_watchingTv(240)],
+        traktClient: traktClient,
+      );
+      await container1.read(upNextProvider.future);
+      container1.dispose();
+      expect(seasonCalls, 1, reason: 'first run should fetch the season');
+
+      final container2 = _container(
+        client: tmdbClient,
+        entries: [_watchingTv(240)],
+        traktClient: traktClient,
+      );
+      addTearDown(container2.dispose);
+      await container2.read(upNextProvider.future);
+
+      expect(seasonCalls, 1,
+          reason: 'second run should reuse the warm on-disk season cache '
+              'and never re-hit Trakt for the season');
+    });
+  });
+
+  group('UpNextData.recentCount', () {
+    test('counts in-window episodes up to the last-aired number via the '
+        'season air map', () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/250')) {
+          return _json({
+            'id': 250,
+            'name': 'Recent Airer',
+            'last_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 5,
+              'air_date': _dateStr(-2),
+            },
+            // No next_episode_to_air — the forward row's episodes list
+            // ends up empty because -2 days is outside [-1, +7].
+          });
+        }
+        return http.Response('unexpected', 404);
+      });
+      final traktClient = MockClient((req) async {
+        if (req.url.path.contains('/search/tmdb/250')) {
+          return _json([
+            {
+              'type': 'show',
+              'show': {'ids': {'trakt': 900}},
+            },
+          ]);
+        }
+        if (req.url.path.contains('/shows/900/seasons/1')) {
+          return _json([
+            // Outside the 7-day recent-count window.
+            {
+              'number': 1,
+              'first_aired':
+                  DateTime.now().toUtc().subtract(const Duration(days: 40)).toIso8601String(),
+            },
+            // Inside the window.
+            {
+              'number': 4,
+              'first_aired':
+                  DateTime.now().toUtc().subtract(const Duration(days: 5)).toIso8601String(),
+            },
+            // Inside the window (this is last_episode_to_air).
+            {
+              'number': 5,
+              'first_aired':
+                  DateTime.now().toUtc().subtract(const Duration(days: 2)).toIso8601String(),
+            },
+            // Episode beyond lastNumber(5) — must be excluded even though
+            // its first_aired sits inside the recent-count window, since
+            // recentCount only counts episodes up to last_episode_to_air.
+            {
+              'number': 6,
+              'first_aired':
+                  DateTime.now().toUtc().subtract(const Duration(days: 1)).toIso8601String(),
+            },
+          ]);
+        }
+        return http.Response('unexpected trakt: ${req.url}', 404);
+      });
+
+      final container = _container(
+        client: client,
+        entries: [_watchingTv(250)],
+        traktClient: traktClient,
+        lagHours: 0,
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+
+      expect(out.episodes, isEmpty,
+          reason: 'last_episode_to_air aired 2 days ago — outside the '
+              'forward window [-1, +7]');
+      expect(out.recentCount, 2,
+          reason: 'episodes 4 and 5 are in [-7, 0] and <= lastNumber(5)');
+    });
+
+    test('date-only fallback counts just the last episode when no Trakt '
+        'id resolves', () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/260')) {
+          return _json({
+            'id': 260,
+            'name': 'No Trakt Show',
+            'last_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 3,
+              'air_date': _dateStr(-2),
+            },
+          });
+        }
+        return http.Response('unexpected', 404);
+      });
+      final container =
+          _container(client: client, entries: [_watchingTv(260)]);
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out.recentCount, 1);
+    });
+
+    test('date-only fallback contributes 0 when the last episode is '
+        'outside the recent window', () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/270')) {
+          return _json({
+            'id': 270,
+            'name': 'Old Show',
+            'last_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 3,
+              'air_date': _dateStr(-30),
+            },
+          });
+        }
+        return http.Response('unexpected', 404);
+      });
+      final container =
+          _container(client: client, entries: [_watchingTv(270)]);
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out.recentCount, 0);
+    });
+
+    test('caps per-show contribution at kUpNextRecentCountMaxPerShow',
+        () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/280')) {
+          return _json({
+            'id': 280,
+            'name': 'Binge Dump',
+            'last_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 12,
+              'air_date': _dateStr(-1),
+            },
+          });
+        }
+        return http.Response('unexpected', 404);
+      });
+      final traktClient = MockClient((req) async {
+        if (req.url.path.contains('/search/tmdb/280')) {
+          return _json([
+            {
+              'type': 'show',
+              'show': {'ids': {'trakt': 950}},
+            },
+          ]);
+        }
+        if (req.url.path.contains('/shows/950/seasons/1')) {
+          return _json([
+            for (var n = 1; n <= 12; n++)
+              {
+                'number': n,
+                'first_aired': DateTime.now()
+                    .toUtc()
+                    .subtract(const Duration(days: 1))
+                    .toIso8601String(),
+              },
+          ]);
+        }
+        return http.Response('unexpected trakt: ${req.url}', 404);
+      });
+      final container = _container(
+        client: client,
+        entries: [_watchingTv(280)],
+        traktClient: traktClient,
+        lagHours: 0,
+      );
+      addTearDown(container.dispose);
+      final out = await container.read(upNextProvider.future);
+      expect(out.recentCount, kUpNextRecentCountMaxPerShow);
     });
   });
 

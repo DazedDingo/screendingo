@@ -158,14 +158,12 @@ void main() {
             },
           ]);
         }
-        if (req.url.path.contains('/shows/555/seasons/1/episodes/1')) {
-          return _json({'first_aired': ep1AirsAt.toIso8601String()});
-        }
-        if (req.url.path.contains('/shows/555/seasons/1/episodes/4')) {
-          return _json({'first_aired': ep4AirsAt.toIso8601String()});
-        }
-        if (req.url.path.contains('/shows/555/seasons/1/episodes/5')) {
-          return _json({'first_aired': ep5AirsAt.toIso8601String()});
+        if (req.url.path.contains('/shows/555/seasons/1')) {
+          return _json([
+            {'number': 1, 'first_aired': ep1AirsAt.toIso8601String()},
+            {'number': 4, 'first_aired': ep4AirsAt.toIso8601String()},
+            {'number': 5, 'first_aired': ep5AirsAt.toIso8601String()},
+          ]);
         }
         return http.Response('not mocked trakt: ${req.url}', 404);
       });
@@ -324,6 +322,122 @@ void main() {
       final out = await container.read(upNextHistoryProvider.future);
 
       expect(out.map((e) => e.tmdbId).toList(), [600]);
+    });
+
+    test('yields the on-disk cache first, then the fresh computation',
+        () async {
+      final cachedEntry = UpNextHistoryEntry(
+        tmdbId: 999,
+        showTitle: 'Cached History Show',
+        season: 1,
+        number: 1,
+        availableAt: DateTime(2026, 1, 1),
+        hasAirTime: false,
+      );
+      SharedPreferences.setMockInitialValues({
+        kUpNextHistoryCacheKey: jsonEncode([cachedEntry.toJson()]),
+      });
+
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/tv/650')) {
+          return _json({
+            'id': 650,
+            'name': 'Fresh History Show',
+            'last_episode_to_air': {
+              'season_number': 1,
+              'episode_number': 1,
+              'air_date': _dateStr(-2),
+            },
+          });
+        }
+        if (req.url.path.endsWith('/tv/650/season/1')) {
+          return _json({
+            'episodes': [
+              {'episode_number': 1, 'air_date': _dateStr(-2)},
+            ],
+          });
+        }
+        return http.Response('not mocked: ${req.url}', 404);
+      });
+      final container = _container(
+        client: client,
+        entries: [_watchingTv(650)],
+      );
+      addTearDown(container.dispose);
+
+      final emitted = <List<UpNextHistoryEntry>>[];
+      container.listen<AsyncValue<List<UpNextHistoryEntry>>>(
+        upNextHistoryProvider,
+        (_, next) {
+          final v = next.value;
+          if (v != null) emitted.add(v);
+        },
+        fireImmediately: true,
+      );
+      // Don't rely on `.future` here — it can resolve as soon as the
+      // FIRST yield (the disk cache) settles the AsyncValue, racing ahead
+      // of the fresh computation entirely. Poll with real delays instead
+      // (mirrors the multi-emission waits elsewhere in this suite, e.g.
+      // upnext_provider_test.dart's transient-empty-emit tests).
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(emitted.length, greaterThanOrEqualTo(2),
+          reason: 'expected at least cached + fresh emits');
+      expect(emitted.first.single.tmdbId, 999,
+          reason: 'first emit should be the disk cache');
+      expect(emitted.last.single.tmdbId, 650,
+          reason: 'last emit should be the fresh computation');
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(kUpNextHistoryCacheKey);
+      expect(raw, isNotNull);
+      expect(raw, contains('650'),
+          reason: 'the fresh result should be persisted back to disk');
+    });
+  });
+
+  group('UpNextHistoryEntry JSON roundtrip', () {
+    test('toJson/fromJson roundtrips every field', () {
+      final entry = UpNextHistoryEntry(
+        tmdbId: 42,
+        showTitle: 'Roundtrip Show',
+        showPosterPath: '/p.jpg',
+        season: 3,
+        number: 8,
+        episodeName: 'The Finale',
+        stillPath: '/s.jpg',
+        availableAt: DateTime(2026, 4, 15, 9, 30),
+        hasAirTime: true,
+      );
+      final restored = UpNextHistoryEntry.fromJson(
+        Map<String, dynamic>.from(
+            jsonDecode(jsonEncode(entry.toJson())) as Map),
+      );
+      expect(restored.tmdbId, entry.tmdbId);
+      expect(restored.showTitle, entry.showTitle);
+      expect(restored.showPosterPath, entry.showPosterPath);
+      expect(restored.season, entry.season);
+      expect(restored.number, entry.number);
+      expect(restored.episodeName, entry.episodeName);
+      expect(restored.stillPath, entry.stillPath);
+      expect(restored.availableAt, entry.availableAt);
+      expect(restored.hasAirTime, entry.hasAirTime);
+    });
+
+    test('optional fields survive a null round trip', () {
+      final entry = UpNextHistoryEntry(
+        tmdbId: 1,
+        showTitle: 'No Extras',
+        season: 1,
+        number: 1,
+        availableAt: DateTime(2026, 1, 1),
+        hasAirTime: false,
+      );
+      final restored =
+          UpNextHistoryEntry.fromJson(Map<String, dynamic>.from(entry.toJson()));
+      expect(restored.showPosterPath, isNull);
+      expect(restored.episodeName, isNull);
+      expect(restored.stillPath, isNull);
     });
   });
 

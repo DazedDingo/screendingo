@@ -23,7 +23,9 @@ import '../../providers/ratings_provider.dart';
 import '../../providers/prediction_provider.dart';
 import '../../providers/recommendations_provider.dart';
 import '../../providers/reviews_provider.dart';
+import '../../providers/season_air_map_provider.dart';
 import '../../providers/tmdb_provider.dart';
+import '../../providers/up_next_lag_provider.dart';
 import '../../providers/watch_entries_provider.dart';
 import '../../providers/watchlist_provider.dart';
 import '../../services/home_widget_service.dart';
@@ -2184,6 +2186,19 @@ class _EpisodeRow extends ConsumerStatefulWidget {
   ConsumerState<_EpisodeRow> createState() => _EpisodeRowState();
 }
 
+/// Formats a Trakt-resolved local air moment in the same "YYYY-MM-DD"
+/// shape the raw TMDB `air_date` string already renders in, plus a
+/// `~HH:mm` suffix — the row's subtitle `Text` has no `maxLines` cap so
+/// the extra few characters always wrap cleanly rather than truncating.
+String _formatResolvedAirDate(DateTime local) {
+  final y = local.year.toString().padLeft(4, '0');
+  final m = local.month.toString().padLeft(2, '0');
+  final d = local.day.toString().padLeft(2, '0');
+  final hh = local.hour.toString().padLeft(2, '0');
+  final mm = local.minute.toString().padLeft(2, '0');
+  return '$y-$m-$d ~$hh:$mm';
+}
+
 class _EpisodeRowState extends ConsumerState<_EpisodeRow> {
   bool _busy = false;
   bool _expanded = false;
@@ -2224,6 +2239,23 @@ class _EpisodeRowState extends ConsumerState<_EpisodeRow> {
     final runtime = (ep['runtime'] as num?)?.toInt();
     final voteAvg = (ep['vote_average'] as num?)?.toDouble();
 
+    // Real broadcast time (gotcha 52/44): TMDB's `air_date` is a
+    // date-only, network-local calendar date and can read a day early
+    // for households in a different timezone (the Silo S3E10 incident —
+    // TMDB said 2026-09-03, Trakt's real `first_aired` was
+    // 2026-09-04T01:00Z / Friday UK). Prefer the season's Trakt-resolved
+    // air map when it's resolved AND has a non-null entry for this
+    // episode; fall back to the raw TMDB string exactly as before
+    // otherwise (unresolved show, network error, episode not yet
+    // scheduled on Trakt).
+    final seasonAirMap =
+        ref.watch(seasonAirMapProvider((widget.tmdbId, season))).value;
+    final airsAtUtc = seasonAirMap?[number];
+    final displayAirDate = airsAtUtc != null
+        ? _formatResolvedAirDate(
+            airsAtUtc.add(Duration(hours: ref.watch(upNextLagHoursProvider))).toLocal())
+        : airDate;
+
     final watchedByMe = widget.uid != null &&
         (widget.stored?.watchedByAt.containsKey(widget.uid) ?? false);
     final ratingTargetId =
@@ -2242,7 +2274,7 @@ class _EpisodeRowState extends ConsumerState<_EpisodeRow> {
     final label =
         'S${season.toString().padLeft(2, '0')}E${number.toString().padLeft(2, '0')}';
     final subtitleParts = <String>[
-      if (airDate != null && airDate.isNotEmpty) airDate,
+      if (displayAirDate != null && displayAirDate.isNotEmpty) displayAirDate,
       if (runtime != null) '${runtime}m',
       if (voteAvg != null && voteAvg > 0) '★ ${voteAvg.toStringAsFixed(1)}',
     ];
