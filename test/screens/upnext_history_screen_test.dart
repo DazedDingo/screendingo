@@ -36,7 +36,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          upNextHistoryProvider.overrideWith((ref) async => entries),
+          upNextHistoryProvider.overrideWith((ref) => Stream.value(entries)),
         ],
         child: const MaterialApp(home: UpNextHistoryScreen()),
       ),

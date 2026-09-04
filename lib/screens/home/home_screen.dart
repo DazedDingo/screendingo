@@ -2398,8 +2398,20 @@ class _UpNextRow extends ConsumerWidget {
     // provider re-runs (e.g. watchEntries stream emits) the row would
     // otherwise vanish for a tick and "pop" back when the fresh result
     // lands. `async.value` exposes the previous value during a refresh.
-    final items = async.value;
-    if (items == null || items.isEmpty) return const SizedBox.shrink();
+    final data = async.value;
+    final items = data?.episodes ?? const <UpNextEpisode>[];
+    if (items.isEmpty) {
+      // Nothing airing within the forward-looking window — but if
+      // something aired recently, keep the "Recently aired" entry point
+      // alive as a slim chip instead of collapsing entirely. Without
+      // this, the history route used to vanish exactly when the
+      // household had been away for a few days (the row's own trigger
+      // — an IconButton inside the header below — only renders when the
+      // header itself renders).
+      final recentCount = data?.recentCount ?? 0;
+      if (recentCount > 0) return _RecentlyAiredChip(count: recentCount);
+      return const SizedBox.shrink();
+    }
     final useStrip = items.length == 1 ||
         disableAnimations ||
         style == UpNextStyle.strip;
@@ -2428,6 +2440,46 @@ class _UpNextRow extends ConsumerWidget {
         else
           _UpNextMarquee(episodes: items),
       ],
+    );
+  }
+}
+
+/// Slim fallback entry point for "Recently aired" when the Up Next row
+/// itself has nothing forward-looking to show but the household still
+/// has episodes airing within [kUpNextRecentCountDays]. Deliberately
+/// minimal — no section header, just a left-aligned tappable line —
+/// since it's a fallback, not the row's primary presentation.
+class _RecentlyAiredChip extends StatelessWidget {
+  final int count;
+  const _RecentlyAiredChip({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: InkWell(
+        onTap: () => context.push('/upnext-history'),
+        borderRadius: BorderRadius.circular(6),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 28),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.history, size: 14, color: colors.primary),
+                const SizedBox(width: 4),
+                Text(
+                  '$count recently aired',
+                  style: TextStyle(fontSize: 12, color: colors.primary),
+                ),
+                Icon(Icons.chevron_right, size: 14, color: colors.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/watch_entry.dart';
 import '../models/watchlist_item.dart';
+import '../utils/trakt_season_air_cache.dart';
 import 'tmdb_provider.dart';
 import 'trakt_provider.dart';
 import 'up_next_lag_provider.dart';
@@ -98,6 +99,27 @@ class UpNextEpisode {
   }
 }
 
+/// Stream payload for [upNextProvider]: the (capped) forward-looking row
+/// plus a lightweight backward-looking count used to keep the Home entry
+/// point alive when nothing is currently airing soon.
+class UpNextData {
+  final List<UpNextEpisode> episodes;
+
+  /// Total in-window (last [kUpNextRecentCountDays] days) recently-aired
+  /// episode count across every eligible show — see
+  /// [upNextProvider]'s doc comment. Independent of [episodes]: an
+  /// episode that aired 3 days ago contributes here even though it fell
+  /// out of the forward-looking row's `[-1, +7]` window.
+  final int recentCount;
+
+  const UpNextData({required this.episodes, this.recentCount = 0});
+
+  Map<String, dynamic> toJson() => {
+        'episodes': episodes.map((e) => e.toJson()).toList(),
+        'recentCount': recentCount,
+      };
+}
+
 /// How many days into the future to surface upcoming episodes. Tight on
 /// purpose — a 7-day horizon keeps the row tied to "this week" so it
 /// only renders when there's something genuinely actionable.
@@ -107,6 +129,19 @@ const int kUpNextWindowDays = 7;
 /// its air date. Short grace so an episode that aired today/yesterday
 /// doesn't vanish before the household has watched it.
 const int kUpNextRecentDays = 1;
+
+/// Lookback window (days) for [UpNextData.recentCount] — how far back an
+/// episode's `availableAt` can sit and still count toward "N recently
+/// aired" on the Home chip. Mirrors [kUpNextWindowDays]'s forward horizon
+/// so the two read as symmetric "this week, past and future" windows.
+const int kUpNextRecentCountDays = 7;
+
+/// Per-show cap on how many recently-aired episodes count toward
+/// [UpNextData.recentCount]. Shares the value (and rationale — a show
+/// that dumped a whole season shouldn't dominate the count) with
+/// `kUpNextHistoryMaxPerShow` in `upnext_history_provider.dart`; kept as
+/// its own constant here so this file has no dependency on that one.
+const int kUpNextRecentCountMaxPerShow = 10;
 
 /// Maximum tiles the Home row will render. Capped low because the whole
 /// rationale for this surface is "low clutter, only when relevant" — a
@@ -122,30 +157,40 @@ const String kUpNextCacheKey = 'wn_upnext_cache';
 
 // Disk cache helper — load returns null on absent OR malformed JSON so
 // a corrupted entry (version mismatch, partial write) silently drops
-// instead of crashing the row on cold start.
+// instead of crashing the row on cold start. Back-compat: the on-disk
+// shape used to be a bare JSON array of episodes; that still parses,
+// with recentCount defaulting to 0 (recomputed on the next fresh run).
 class _UpNextDiskCache {
-  static List<UpNextEpisode>? load(SharedPreferences prefs) {
+  static UpNextData? load(SharedPreferences prefs) {
     final raw = prefs.getString(kUpNextCacheKey);
     if (raw == null || raw.isEmpty) return null;
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return null;
-      return decoded
-          .whereType<Map>()
-          .map((e) => UpNextEpisode.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
+      if (decoded is List) {
+        final episodes = decoded
+            .whereType<Map>()
+            .map((e) => UpNextEpisode.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        return UpNextData(episodes: episodes, recentCount: 0);
+      }
+      if (decoded is Map) {
+        final episodesRaw = decoded['episodes'];
+        final episodes = (episodesRaw is List ? episodesRaw : const [])
+            .whereType<Map>()
+            .map((e) => UpNextEpisode.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        final recentCount = (decoded['recentCount'] as num?)?.toInt() ?? 0;
+        return UpNextData(episodes: episodes, recentCount: recentCount);
+      }
+      return null;
     } catch (e) {
       developer.log('Up Next cache corrupt, dropping: $e', name: 'upnext');
       return null;
     }
   }
 
-  static Future<void> save(
-    SharedPreferences prefs,
-    List<UpNextEpisode> items,
-  ) async {
-    final encoded = jsonEncode(items.map((e) => e.toJson()).toList());
-    await prefs.setString(kUpNextCacheKey, encoded);
+  static Future<void> save(SharedPreferences prefs, UpNextData data) async {
+    await prefs.setString(kUpNextCacheKey, jsonEncode(data.toJson()));
   }
 }
 
@@ -202,6 +247,16 @@ List<Map<String, dynamic>> upNextCandidates(Map<String, dynamic> show) {
   return out;
 }
 
+/// Parses a TMDB episode map's `air_date` into a local-midnight
+/// [DateTime]. Returns null when the field is missing/unparseable.
+DateTime? _episodeAirDate(Map<String, dynamic> episode) {
+  final airDateStr = episode['air_date'] as String?;
+  if (airDateStr == null || airDateStr.isEmpty) return null;
+  final parsed = DateTime.tryParse(airDateStr);
+  if (parsed == null) return null;
+  return DateTime(parsed.year, parsed.month, parsed.day);
+}
+
 /// Builds an [UpNextEpisode] from one candidate episode map (see
 /// [upNextCandidates]), applying the shared spec's availableAt / lag /
 /// window-filter steps. Returns null when the candidate has no usable
@@ -256,6 +311,14 @@ UpNextEpisode? buildUpNextEpisode({
   );
 }
 
+/// True when [availableAt] falls inside the trailing recent-count window:
+/// became available within the last [kUpNextRecentCountDays] days, not
+/// later than [now].
+bool _inRecentCountWindow(DateTime availableAt, DateTime now) {
+  final cutoff = now.subtract(const Duration(days: kUpNextRecentCountDays));
+  return availableAt.isAfter(cutoff) && !availableAt.isAfter(now);
+}
+
 /// SharedPreferences key for the tmdbId→traktId lookup cache. A show's
 /// Trakt id never changes, so once resolved we never need to hit Trakt's
 /// `/search/tmdb` endpoint for it again.
@@ -302,26 +365,42 @@ Future<void> saveTraktIdCache(
 /// Sources (see [upNextEligibleTvIds]): `WatchEntry.inProgressStatus ==
 /// 'watching'` plus mode-visible watchlist TV rows — saving a show is
 /// enough to surface its premiere/next episode; the user doesn't have to
-/// mark it as watching first. Returns empty when neither source has an
-/// eligible show; the Home row collapses to nothing in that case so the
-/// screen stays the same as today.
+/// mark it as watching first. Returns empty episodes when neither source
+/// has an eligible show; the Home row collapses to nothing in that case
+/// so the screen stays the same as today.
 ///
 /// Real air time: for each candidate episode ([upNextCandidates]) we
 /// resolve the Trakt show id (cached — see [kUpNextTraktIdCacheKey]) then
-/// fetch the episode's real `first_aired` via Trakt's public API, and
-/// build the row via [buildUpNextEpisode] using the user's configured
-/// lag ([upNextLagHoursProvider]). Any Trakt failure (unresolved id,
-/// non-200, network error) degrades to the TMDB date-only fallback —
-/// never drops the row. Per show, the candidate with the earliest
-/// `availableAt` wins (spec step 4) so a just-available episode stays on
-/// screen even after TMDB has already advanced `next_episode_to_air`.
+/// the SHOW-SEASON's air-time map — one Trakt call per (show, season),
+/// cached on disk via [TraktSeasonAirCache] (6h TTL) and memoized within
+/// a single provider run so the `last_episode_to_air` and
+/// `next_episode_to_air` candidates sharing a season don't double-fetch —
+/// then builds the row via [buildUpNextEpisode] using the user's
+/// configured lag ([upNextLagHoursProvider]). Any Trakt failure
+/// (unresolved id, non-200, network error) degrades to the TMDB
+/// date-only fallback — never drops the row. Per show, the candidate
+/// with the earliest `availableAt` wins (spec step 4) so a just-available
+/// episode stays on screen even after TMDB has already advanced
+/// `next_episode_to_air`.
+///
+/// [UpNextData.recentCount]: independently of the forward-looking row,
+/// each eligible show also contributes its count of episodes whose
+/// `availableAt` falls in `[now - kUpNextRecentCountDays, now]` — capped
+/// per show at [kUpNextRecentCountMaxPerShow]. When the show's Trakt
+/// season map resolved, every episode number up to and including
+/// `last_episode_to_air`'s is checked (cheap: no extra Trakt call, reuses
+/// the same season map fetched for the row above when the seasons match);
+/// otherwise it falls back to counting just `last_episode_to_air` itself
+/// via its date-only air date. This keeps the Home entry point alive
+/// (as a "N recently aired" chip) even on weeks where the row itself is
+/// empty because the last episode aired more than [kUpNextRecentDays]
+/// days ago.
 // Stream-based stale-while-revalidate: yields the disk cache (if any)
 // first so the row paints immediately on cold start, then fans the
 // per-show TMDB calls and yields fresh data. Without this, the FIRST
 // app open after install/relaunch waited 1-2s on the TMDB fan-out and
 // the row visibly "popped in".
-final upNextProvider =
-    StreamProvider<List<UpNextEpisode>>((ref) async* {
+final upNextProvider = StreamProvider<UpNextData>((ref) async* {
   final prefs = await SharedPreferences.getInstance();
   final cached = _UpNextDiskCache.load(prefs);
   if (cached != null) yield cached;
@@ -347,9 +426,10 @@ final upNextProvider =
     // non-empty cache to fall back to. The next Firestore emit
     // will (probably) carry the real data and re-trigger the stream
     // with the non-empty branch, which writes through authoritatively.
-    if (cached == null || cached.isEmpty) {
-      await _UpNextDiskCache.save(prefs, const []);
-      yield const [];
+    if (cached == null || cached.episodes.isEmpty) {
+      const empty = UpNextData(episodes: [], recentCount: 0);
+      await _UpNextDiskCache.save(prefs, empty);
+      yield empty;
     }
     return;
   }
@@ -361,6 +441,8 @@ final upNextProvider =
 
   final traktIdCache = loadTraktIdCache(prefs);
   var traktIdCacheDirty = false;
+  final seasonAirCache = TraktSeasonAirCache(prefs);
+  final seasonMemo = <String, Map<int, DateTime?>?>{};
 
   Future<int?> resolveTraktShowId(int tmdbId) async {
     if (traktIdCache.containsKey(tmdbId)) return traktIdCache[tmdbId];
@@ -372,11 +454,88 @@ final upNextProvider =
     return resolved;
   }
 
-  final fetches = tvIds.map((tmdbId) async {
+  // One Trakt call per (traktShowId, season) — checks the in-run memo
+  // first (so two candidates in the same season within THIS run never
+  // double-fetch), then the persistent 6h-TTL cache, then falls through
+  // to a real Trakt fetch. Failures degrade to null (date-only fallback
+  // upstream), never throw.
+  Future<Map<int, DateTime?>?> resolveSeasonMap(
+    int traktShowId,
+    int season,
+  ) async {
+    final memoKey = '$traktShowId:$season';
+    if (seasonMemo.containsKey(memoKey)) return seasonMemo[memoKey];
+    final fromDisk = seasonAirCache.get(traktShowId, season, now);
+    if (fromDisk != null) {
+      seasonMemo[memoKey] = fromDisk;
+      return fromDisk;
+    }
     try {
-      final show = await tmdb.tvShow(tmdbId);
+      final fetched = await trakt.fetchSeasonFirstAired(
+        traktShowId: traktShowId,
+        season: season,
+      );
+      if (fetched != null) {
+        seasonAirCache.put(traktShowId, season, fetched, now);
+      }
+      seasonMemo[memoKey] = fetched;
+      return fetched;
+    } catch (_) {
+      seasonMemo[memoKey] = null;
+      return null;
+    }
+  }
+
+  final fetches = tvIds.map((tmdbId) async {
+    Map<String, dynamic> show;
+    try {
+      show = await tmdb.tvShow(tmdbId);
+    } catch (_) {
+      // A single show's TMDB lookup failing shouldn't sink the row —
+      // skip it and let other shows surface.
+      return (null, 0);
+    }
+
+    // --- recentCount contribution for this show (independent of the
+    // forward-looking row below) ---
+    var showRecentCount = 0;
+    try {
+      final lastRaw = show['last_episode_to_air'];
+      if (lastRaw is Map) {
+        final last = Map<String, dynamic>.from(lastRaw);
+        final lastAirDate = _episodeAirDate(last);
+        final lastSeason = (last['season_number'] as num?)?.toInt() ?? 0;
+        final lastNumber = (last['episode_number'] as num?)?.toInt() ?? 0;
+        if (lastAirDate != null) {
+          final traktShowId = await resolveTraktShowId(tmdbId);
+          final seasonMap = traktShowId != null
+              ? await resolveSeasonMap(traktShowId, lastSeason)
+              : null;
+          if (seasonMap != null) {
+            final numbers = seasonMap.keys.where((n) => n <= lastNumber).toList()
+              ..sort();
+            for (final n in numbers) {
+              final airsAtUtc = seasonMap[n];
+              if (airsAtUtc == null) continue;
+              final availableAt =
+                  airsAtUtc.add(Duration(hours: lagHours)).toLocal();
+              if (_inRecentCountWindow(availableAt, now)) showRecentCount++;
+              if (showRecentCount >= kUpNextRecentCountMaxPerShow) break;
+            }
+          } else if (_inRecentCountWindow(lastAirDate, now)) {
+            // Date-only fallback: no season map resolved, so all we know
+            // is the last-aired episode's calendar date.
+            showRecentCount = 1;
+          }
+        }
+      }
+    } catch (_) {
+      showRecentCount = 0;
+    }
+
+    try {
       final candidates = upNextCandidates(show);
-      if (candidates.isEmpty) return null;
+      if (candidates.isEmpty) return (null, showRecentCount);
 
       UpNextEpisode? best;
       for (final episode in candidates) {
@@ -386,11 +545,8 @@ final upNextProvider =
           if (traktShowId != null) {
             final season = (episode['season_number'] as num?)?.toInt() ?? 0;
             final number = (episode['episode_number'] as num?)?.toInt() ?? 0;
-            airsAtUtc = await trakt.fetchEpisodeFirstAired(
-              traktShowId: traktShowId,
-              season: season,
-              number: number,
-            );
+            final seasonMap = await resolveSeasonMap(traktShowId, season);
+            airsAtUtc = seasonMap?[number];
           }
         } catch (_) {
           // Trakt failing for this episode just means no real air time —
@@ -410,11 +566,11 @@ final upNextProvider =
           best = built;
         }
       }
-      return best;
+      return (best, showRecentCount);
     } catch (_) {
-      // A single show's TMDB lookup failing shouldn't sink the row —
-      // skip it and let other shows surface.
-      return null;
+      // A single show's candidate-building failing shouldn't sink the
+      // row — skip it and let other shows surface.
+      return (null, showRecentCount);
     }
   }).toList();
 
@@ -422,11 +578,16 @@ final upNextProvider =
   if (traktIdCacheDirty) {
     await saveTraktIdCache(prefs, traktIdCache);
   }
-  final fresh = results.whereType<UpNextEpisode>().toList()
+  await seasonAirCache.save();
+
+  final fresh = results.map((r) => r.$1).whereType<UpNextEpisode>().toList()
     ..sort((a, b) => a.availableAt.compareTo(b.availableAt));
   final capped = fresh.take(kUpNextMaxTiles).toList();
-  await _UpNextDiskCache.save(prefs, capped);
-  yield capped;
+  final recentCount =
+      results.fold<int>(0, (sum, r) => sum + r.$2);
+  final data = UpNextData(episodes: capped, recentCount: recentCount);
+  await _UpNextDiskCache.save(prefs, data);
+  yield data;
 });
 
 /// Lightweight summary used by Profile → Insights as a "feature health"
@@ -451,6 +612,6 @@ final upNextSummaryProvider =
   final upcoming = await ref.watch(upNextProvider.future);
   return UpNextSummary(
     trackedShowCount: trackedCount,
-    next: upcoming.isEmpty ? null : upcoming.first,
+    next: upcoming.episodes.isEmpty ? null : upcoming.episodes.first,
   );
 });

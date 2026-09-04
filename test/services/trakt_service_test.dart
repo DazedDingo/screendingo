@@ -485,27 +485,41 @@ void main() {
     });
   });
 
-  group('TraktService.fetchEpisodeFirstAired', () {
-    test('parses first_aired as UTC', () async {
+  group('TraktService.fetchSeasonFirstAired', () {
+    test('maps array of episodes to number -> first_aired (UTC), incl a '
+        'null first_aired entry', () async {
       final rec = _Recorder();
       final trakt = TraktService(
         client: rec.build(routes: {
-          '/shows/1390/seasons/3/episodes/4': (_) => http.Response(
-              json.encode({'first_aired': '2026-05-01T02:00:00.000Z'}),
+          '/shows/1390/seasons/3': (_) => http.Response(
+              json.encode([
+                {
+                  'number': 1,
+                  'first_aired': '2026-05-01T02:00:00.000Z',
+                },
+                {
+                  'number': 2,
+                  'first_aired': null,
+                },
+              ]),
               200,
               headers: const {'content-type': 'application/json'}),
         }),
         db: FakeFirebaseFirestore(),
       );
-      final result = await trakt.fetchEpisodeFirstAired(
-          traktShowId: 1390, season: 3, number: 4);
+      final result =
+          await trakt.fetchSeasonFirstAired(traktShowId: 1390, season: 3);
       expect(result, isNotNull);
-      expect(result!.isUtc, isTrue);
-      expect(result, DateTime.utc(2026, 5, 1, 2));
+      expect(result!.length, 2);
+      expect(result[1], DateTime.utc(2026, 5, 1, 2));
+      expect(result[1]!.isUtc, isTrue);
+      expect(result.containsKey(2), isTrue);
+      expect(result[2], isNull);
       final req = rec.calls.single;
-      expect(req.url.path, endsWith('/shows/1390/seasons/3/episodes/4'));
+      expect(req.url.path, endsWith('/shows/1390/seasons/3'));
       expect(req.url.queryParameters['extended'], 'full');
-      expect(req.headers.containsKey('authorization'), isFalse);
+      expect(req.headers.containsKey('authorization'), isFalse,
+          reason: 'public Trakt endpoints must not send a bearer token');
     });
 
     test('404 response returns null', () async {
@@ -514,23 +528,7 @@ void main() {
         db: FakeFirebaseFirestore(),
       );
       expect(
-        await trakt.fetchEpisodeFirstAired(
-            traktShowId: 1, season: 1, number: 1),
-        isNull,
-      );
-    });
-
-    test('first_aired: null returns null', () async {
-      final trakt = TraktService(
-        client: MockClient((_) async => http.Response(
-            json.encode({'first_aired': null}),
-            200,
-            headers: const {'content-type': 'application/json'})),
-        db: FakeFirebaseFirestore(),
-      );
-      expect(
-        await trakt.fetchEpisodeFirstAired(
-            traktShowId: 1, season: 1, number: 1),
+        await trakt.fetchSeasonFirstAired(traktShowId: 1, season: 1),
         isNull,
       );
     });
@@ -541,10 +539,48 @@ void main() {
         db: FakeFirebaseFirestore(),
       );
       expect(
-        await trakt.fetchEpisodeFirstAired(
-            traktShowId: 1, season: 1, number: 1),
+        await trakt.fetchSeasonFirstAired(traktShowId: 1, season: 1),
         isNull,
       );
+    });
+
+    test('non-array (object) body returns null', () async {
+      final trakt = TraktService(
+        client: MockClient((_) async => http.Response(
+            json.encode({'not': 'an array'}),
+            200,
+            headers: const {'content-type': 'application/json'})),
+        db: FakeFirebaseFirestore(),
+      );
+      expect(
+        await trakt.fetchSeasonFirstAired(traktShowId: 1, season: 1),
+        isNull,
+      );
+    });
+
+    test('network exception returns null', () async {
+      final trakt = TraktService(
+        client: MockClient((_) async => throw Exception('boom')),
+        db: FakeFirebaseFirestore(),
+      );
+      expect(
+        await trakt.fetchSeasonFirstAired(traktShowId: 1, season: 1),
+        isNull,
+      );
+    });
+
+    test('empty array returns an empty map, not null', () async {
+      final trakt = TraktService(
+        client: MockClient((_) async => http.Response(
+            json.encode(const <dynamic>[]),
+            200,
+            headers: const {'content-type': 'application/json'})),
+        db: FakeFirebaseFirestore(),
+      );
+      final result =
+          await trakt.fetchSeasonFirstAired(traktShowId: 1, season: 1);
+      expect(result, isNotNull);
+      expect(result, isEmpty);
     });
   });
 }

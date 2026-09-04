@@ -307,7 +307,8 @@ class _ScreenDingoAppState extends ConsumerState<ScreenDingoApp>
 
   Future<void> _pushWidgets() async {
     try {
-      final upNext = ref.read(upNextProvider).value ?? const <UpNextEpisode>[];
+      final upNext =
+          ref.read(upNextProvider).value?.episodes ?? const <UpNextEpisode>[];
       final pick = ref.read(tonightsPickProvider).value;
       await HomeWidgetService.pushUpNext(upNext);
       await HomeWidgetService.pushTonightsPick(pick);
