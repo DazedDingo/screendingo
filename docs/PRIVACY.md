@@ -7,10 +7,9 @@ information. It applies to the version distributed via Google Play and
 the sideload APKs available from this repository's GitHub Releases.
 
 **Data controller**: Zachary Birney, trading as DazedDingo. Contact:
-zachbirney@gmail.com. Postal address: Flat 21, Kiln House, 14 St Thomas
-Street, Bristol BS1 6WL, United Kingdom. Under UK GDPR (and EU GDPR for
-EEA users), the data controller is responsible for how your personal
-information is handled by this app.
+zachbirney@gmail.com. Under UK GDPR (and EU GDPR for EEA users), the
+data controller is responsible for how your personal information is
+handled by this app.
 
 ## TL;DR
 
