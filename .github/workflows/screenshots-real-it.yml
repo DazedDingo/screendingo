@@ -63,6 +63,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.1  # pinned 2026-11-25: stable 3.50 deprecates material.dart; bump deliberately
           cache: true
 
       - name: Restore google-services.json from secret
