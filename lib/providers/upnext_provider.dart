@@ -357,6 +357,18 @@ Future<void> saveTraktIdCache(
   await prefs.setString(kUpNextTraktIdCacheKey, encoded);
 }
 
+/// True when the Up Next row should be recomputed on app resume: never
+/// computed, or the last compute is at least [maxAge] old. A clock that
+/// went backwards (now < last) does not trigger a refresh.
+bool upNextNeedsRefresh(
+  DateTime? lastComputedAt,
+  DateTime now, {
+  Duration maxAge = const Duration(minutes: 30),
+}) {
+  if (lastComputedAt == null) return true;
+  return now.difference(lastComputedAt) >= maxAge;
+}
+
 /// Resolves the next episode for every TV show the household is
 /// currently mid-watch on OR has saved to the watchlist, filters to
 /// those with an air date inside the visibility window, and ranks by

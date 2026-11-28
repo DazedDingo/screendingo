@@ -123,6 +123,50 @@ ProviderContainer _container({
 }
 
 void main() {
+  group('upNextNeedsRefresh', () {
+    final last = DateTime(2026, 1, 1, 12);
+    test('null last computed refreshes', () {
+      expect(upNextNeedsRefresh(null, last), isTrue);
+    });
+    test('just under threshold does not refresh', () {
+      expect(
+        upNextNeedsRefresh(
+          last,
+          last.add(const Duration(minutes: 29, seconds: 59)),
+        ),
+        isFalse,
+      );
+    });
+    test('exactly at threshold refreshes', () {
+      expect(
+        upNextNeedsRefresh(last, last.add(const Duration(minutes: 30))),
+        isTrue,
+      );
+    });
+    test('over threshold refreshes', () {
+      expect(
+        upNextNeedsRefresh(last, last.add(const Duration(days: 2))),
+        isTrue,
+      );
+    });
+    test('clock going backwards does not refresh', () {
+      expect(
+        upNextNeedsRefresh(last, last.subtract(const Duration(hours: 3))),
+        isFalse,
+      );
+    });
+    test('custom maxAge honoured', () {
+      expect(
+        upNextNeedsRefresh(
+          last,
+          last.add(const Duration(minutes: 5)),
+          maxAge: const Duration(minutes: 5),
+        ),
+        isTrue,
+      );
+    });
+  });
+
   setUp(() {
     // The new disk-backed cache reads SharedPreferences on every
     // upNextProvider re-run; mock the platform channel with an empty

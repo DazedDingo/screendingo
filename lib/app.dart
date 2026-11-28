@@ -195,6 +195,7 @@ class ScreenDingoApp extends ConsumerStatefulWidget {
 class _ScreenDingoAppState extends ConsumerState<ScreenDingoApp>
     with WidgetsBindingObserver {
   StreamSubscription<Uri>? _widgetTapSub;
+  DateTime? _upNextComputedAt;
 
   @override
   void initState() {
@@ -207,7 +208,10 @@ class _ScreenDingoAppState extends ConsumerState<ScreenDingoApp>
     // foreground the app — which is what was happening when freshly added
     // widgets reported "Open ScreenDingo to refresh".
     WidgetsBinding.instance.addPostFrameCallback((_) => _pushWidgets());
-    ref.listenManual(upNextProvider, (_, _) => _pushWidgets());
+    ref.listenManual(upNextProvider, (_, next) {
+      if (next.hasValue) _upNextComputedAt = DateTime.now();
+      _pushWidgets();
+    });
     ref.listenManual(tonightsPickProvider, (_, _) => _pushWidgets());
   }
 
@@ -221,6 +225,12 @@ class _ScreenDingoAppState extends ConsumerState<ScreenDingoApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // The process can live for days in the background; without this the
+      // Up Next row (its "now" window, season-air cache and TMDB data) stays
+      // frozen until a Firestore emit or a cold start.
+      if (upNextNeedsRefresh(_upNextComputedAt, DateTime.now())) {
+        ref.invalidate(upNextProvider);
+      }
       _pushWidgets();
     }
   }
@@ -392,12 +402,14 @@ class _ErrorScreen extends StatelessWidget {
 // stay scoped to the bottom-nav shell. The widget bridge moved up to
 // `_ScreenDingoAppState` because warm taps must route even when the shell is
 // unmounted (title detail / login / splash live outside it).
-class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar> {
+class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar>
+    with WidgetsBindingObserver {
   StreamSubscription<List<SharedMediaFile>>? _shareSub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeSyncTrakt();
       _wireShareListeners();
@@ -407,8 +419,16 @@ class _ScaffoldWithNavBarState extends ConsumerState<ScaffoldWithNavBar> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _shareSub?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Trakt watch sync used to run only on cold start, so a long-lived
+    // process never picked up new progress. syncIfStale has its own 1h gate.
+    if (state == AppLifecycleState.resumed) _maybeSyncTrakt();
   }
 
   void _wireShareListeners() {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.33 (2026-11-28)
+
+- **Up Next no longer freezes while the app sits in the background.** The row was computed once and only recomputed when your watch data changed or the app was fully closed and reopened. Android keeps the app alive in the background for days, so Up Next (and its "Today / Tomorrow" labels) could sit stale indefinitely. Now, coming back to the app re-checks Up Next whenever the last check is 30+ minutes old (`upNextNeedsRefresh`); the cached row stays on screen while the fresh one loads.
+- **Trakt watch sync runs on resume too**, not just at app launch — so episodes you marked watched on Trakt move Up Next along without a force-close. Still gated to at most once an hour.
+- **Pull-to-refresh on Home now refreshes Up Next** as well as recommendations.
+- **Tests:** +6 (`upNextNeedsRefresh` thresholds + clock-going-backwards). **Cost:** none — TMDB is free, Trakt air-time calls are public and 6h-cached.
+
 ## 0.12.32 (2026-09-04)
 
 - **Correct air dates on the episode list too (the Silo fix).** The title-detail Episodes section still showed TMDB's raw date — for Silo S3E10 that read "2026-09-03" while the episode actually dropped 02:00 UK on the 4th, sending the household hunting a day early. Episode rows now show the Trakt-resolved availability moment ("2026-09-04 ~08:00", your delay included) whenever Trakt knows the real time, falling back to the raw TMDB date otherwise. Resolved via a new `seasonAirMapProvider` family (one cached Trakt call per expanded season).

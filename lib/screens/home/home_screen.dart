@@ -113,6 +113,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// the filter header so the user knows the tap was registered.
   Future<void> _fireRefresh() async {
     ref.invalidate(refreshRecommendationsProvider);
+    ref.invalidate(upNextProvider);
     if (mounted) setState(() => _refreshing = true);
     try {
       final didWork =
